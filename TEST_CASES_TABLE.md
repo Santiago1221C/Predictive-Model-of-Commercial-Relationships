@@ -4,7 +4,7 @@
 
 | Test ID | Test Name | Description | Acceptance Criteria | Steps to Reproduce | Expected Result |
 |---------|-----------|-------------|-------------------|-------------------|-----------------|
-| **1.1** | **test_upload_data_success_csv** | Verify successful CSV data upload with valid file | - File loads successfully<br>- All required columns detected<br>- Data validation passes<br>- Correct number of records loaded | 1. Execute `python risk_prediction.py`<br>2. Select option 1<br>3. Press Enter to use default file<br>4. Observe output |  Success message<br> "File loaded successfully"<br> "Required fields validation: SUCCESSFUL"<br>✅ "🎉 UPLOAD COMPLETED SUCCESSFULLY"<br> 5 records loaded |
+| **1.1** | **test_upload_data_success_csv** | Verify successful CSV data upload with valid file | - File loads successfully<br>- All required columns detected<br>- Data validation passes<br>- Correct number of records loaded | 1. Execute `python risk_prediction.py`<br>2. Select option 1<br>3. Press Enter to use default file<br>4. Observe output |  Success message<br> "File loaded successfully"<br> "Required fields validation: SUCCESSFUL"<br>"UPLOAD COMPLETED SUCCESSFULLY"<br> 5 records loaded |
 | **1.2** | **test_upload_data_file_not_found** | Verify error handling when file doesn't exist | - Error handled gracefully<br>- Appropriate error message<br>- No system crash<br>- Returns failure status | 1. Execute `python risk_prediction.py`<br>2. Select option 1<br>3. Enter non-existent file path<br>4. Observe error handling | Error message: "does not exist"<br> Success = False<br>No crash occurs<br>Graceful error handling |
 | **1.3** | **test_upload_data_invalid_format** | Verify rejection of unsupported file formats | - Invalid format rejected<br>- Clear error message<br>- Only CSV/XLSX accepted<br>- No data corruption | 1. Create .txt file with test data<br>2. Execute `python risk_prediction.py`<br>3. Select option 1<br>4. Enter .txt file path | Error message: "Only CSV or XLSX formats"<br> Success = False<br>Format validation fails<br>No data loaded |
 | **1.4** | **test_upload_data_missing_required_fields** | Verify validation of mandatory fields | - Missing fields detected<br>- Validation errors generated<br>- Clear error messages<br>- No partial data loading | 1. Create CSV without required fields<br>2. Execute `python risk_prediction.py`<br>3. Select option 1<br>4. Enter invalid CSV path | Error message: "Required fields not found"<br>Validation errors list<br>Success = False<br>Fields identified as missing |
@@ -107,5 +107,6 @@ python run_tests.py
 - Invalid data types
 - Boundary conditions
 - Error recovery
+
 
 This comprehensive test suite ensures complete coverage of both functional requirements with robust validation of success and error scenarios.
