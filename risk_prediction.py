@@ -249,7 +249,7 @@ class FunctionalRequirementsAnalyzer:
             
         except Exception as e:
             result['message'] = f"Error in aggregation: {str(e)}"
-            print(f"Error: {result['message']}")
+            print(f"❌ Error: {result['message']}")
         
         return result
     
@@ -305,10 +305,11 @@ def main():
         print("=" * 80)
         print("1. Upload historical data (CSV/XLSX) - Functional Requirement 1")
         print("2. Aggregate data by customer and period - Functional Requirement 2")
-        print("3. Exit")
+        print("3. Run test cases for Functional Requirements 1 & 2")
+        print("4. Exit")
         print("=" * 80)
         
-        option = input("\nSelect an option (1-3): ").strip()
+        option = input("\nSelect an option (1-4): ").strip()
         
         if option == "1":
             # Functional Requirement 1: Upload historical data
@@ -329,7 +330,7 @@ def main():
                     for error in result['validation_errors']:
                         print(f"   - {error}")
             else:
-                print(f"\n{result['message']}")
+                print(f"\n❌ {result['message']}")
             
         elif option == "2":
             # Functional Requirement 2: Aggregate data
@@ -338,7 +339,7 @@ def main():
             print("=" * 60)
             
             if analyzer.df is None:
-                print("Must load data first (option 1)")
+                print("❌ Must load data first (option 1)")
                 continue
             
             print("Available periods:")
@@ -367,7 +368,26 @@ def main():
                 print(f"\n{result['message']}")
             
         elif option == "3":
+            # Ejecutar casos de prueba
+            print("\n" + "=" * 60)
+            print("EJECUTANDO CASOS DE PRUEBA")
+            print("=" * 60)
+            
+            try:
+                from test_functional_requirements import run_tests
+                success = run_tests()
+                
+                if success:
+                    print("\n🎉 Todos los casos de prueba pasaron exitosamente!")
+                else:
+                    print("\n❌ Algunos casos de prueba fallaron. Revisa los detalles arriba.")
+            except ImportError:
+                print("❌ Error: No se pudo importar el módulo de pruebas.")
+                print("Asegúrate de que el archivo 'test_functional_requirements.py' esté en el mismo directorio.")
+            
+        elif option == "4":
             print("\nThank you for using the system!")
+            print("Functional Requirements 1 & 2 completed")
             break
             
         else:
