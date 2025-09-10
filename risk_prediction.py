@@ -1,12 +1,12 @@
-# Se importan las librerías necesarias.
+# The necessary libraries are imported.
 import pandas as pd
 import numpy as np
 import os
 from typing import Dict, Optional, Tuple
 import warnings
-#matplotlib para poder generar y mostrar gráficos.
+#matplotlib to be able to generate and display graphs.
 import matplotlib.pyplot as plt
-#librerías de Scikit-learn para Machine Learning ---
+#Scikit-learn libraries for Machine Learning
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, precision_score, recall_score, confusion_matrix, classification_report
@@ -161,12 +161,12 @@ class FunctionalRequirementsAnalyzer:
         print("=" * 80)
 
         if self.aggregated_df is None:
-            print("Error: Primero debes agregar los datos (opción 2)."); return
+            print("Error: You must first add the data (option 2)."); return
 
         customer_data = self.aggregated_df[self.aggregated_df[self.customer_col] == customer_id].copy()
 
         if customer_data.empty:
-            print(f"Error: No se encontraron datos para el cliente ID '{customer_id}'."); return
+            print(f"Error: No data found for customer ID '{customer_id}'."); return
 
         customer_data['period_dt'] = customer_data['period'].dt.to_timestamp()
         
@@ -178,11 +178,11 @@ class FunctionalRequirementsAnalyzer:
                 end_date = pd.to_datetime(end_date_str)
                 customer_data = customer_data[customer_data['period_dt'] <= end_date]
         except ValueError:
-            print("Advertencia: Formato de fecha inválido (debe ser YYYY-MM). Se ignorará el filtro de fecha.")
+            print("Warning: Invalid date format (must be YYYY-MM). Date filter will be ignored.")
 
         if customer_data.empty:
-            print(f"Error: No se encontraron datos para el cliente '{customer_id}' en el rango de fechas especificado."); return
-            
+            print(f"Error: No data found for customer '{customer_id}' in the specified date range."); return
+
         customer_data = customer_data.sort_values('period_dt')
 
         plt.figure(figsize=(12, 6))
@@ -190,14 +190,14 @@ class FunctionalRequirementsAnalyzer:
         if chart_type == 'bar':
             plt.bar(customer_data['period_dt'], customer_data['total_tons'], color='skyblue', label=f'Compras (Toneladas) de {customer_id}')
         else:
-            plt.plot(customer_data['period_dt'], customer_data['total_tons'], marker='o', linestyle='-', color='b', label=f'Compras (Toneladas) de {customer_id}')
+            plt.plot(customer_data['period_dt'], customer_data['total_tons'], marker='o', linestyle='-', color='b', label=f'Purchasing (Tons) for {customer_id}')
 
-        plt.title(f'Tendencia de Compras (Toneladas) para Cliente: {customer_id}')
-        plt.xlabel('Período'); plt.ylabel('Total Comprado (Toneladas)')
+        plt.title(f'Purchasing Trend (Tons) for Client: {customer_id}')
+        plt.xlabel('Period'); plt.ylabel('Total Purchased (Tons)')
         plt.grid(True, linestyle='--', linewidth=0.5); plt.xticks(rotation=45)
         plt.legend(); plt.tight_layout()
 
-        print("Mostrando gráfico... Cierra la ventana del gráfico para continuar.")
+        print("Displaying chart... Close the chart window to continue.")
         plt.show()
 
     # ==================== FUNCTIONAL REQUIREMENT 4: IDENTIFY AT-RISK ====================
@@ -206,13 +206,13 @@ class FunctionalRequirementsAnalyzer:
         print("=" * 80)
         print("FUNCTIONAL REQUIREMENT 4: IDENTIFYING AT-RISK CUSTOMERS")
         if threshold_pct is not None:
-            print(f"Umbral de caída porcentual definido: {threshold_pct}%")
+            print(f"Defined percentage drop threshold: {threshold_pct}%")
         if threshold_value is not None:
-            print(f"Umbral de caída de valor definido: {threshold_value} toneladas")
+            print(f"Defined value drop threshold: {threshold_value} tons")
         print("=" * 80)
 
         if self.aggregated_df is None:
-            print("Error: Primero debes agregar los datos (opción 2)."); return
+            print("Error: You must first add the data (option 2)."); return
 
         df_risk = self.aggregated_df.copy()
         df_risk = df_risk.sort_values([self.customer_col, 'period'])
@@ -236,22 +236,22 @@ class FunctionalRequirementsAnalyzer:
         elif threshold_value is not None:
             at_risk = latest_purchases[latest_purchases['drop_value'] >= threshold_value]
 
-        print("\n--- ¡ALERTA! Clientes en Riesgo Detectados ---")
+        print("\n--- ALERT! At-Risk Customers Detected ---")
         if not at_risk.empty:
             display_cols = {
-                self.customer_col: 'Cliente', 'period': 'Último Período',
-                'total_tons': 'Última Compra (Ton)', 'avg_last_3_tons': 'Promedio Anterior (Ton)',
-                'drop_pct': '% Caída', 'drop_value': 'Caída (Ton)'
+                self.customer_col: 'Client', 'period': 'Last Period',
+                'total_tons': 'Last Purchase (Tons)', 'avg_last_3_tons': 'Previous Average (Tons)',
+                'drop_pct': '% Drop', 'drop_value': 'Drop (Tons)'
             }
             print(at_risk[list(display_cols.keys())].rename(columns=display_cols).to_string(index=False))
         else:
-            print("No se encontraron clientes que cumplan con el criterio de riesgo.")
+            print("No clients were found that meet the risk criteria.")
         print("=" * 80)
 
     # ==================== FUNCTIONAL REQUIREMENT 4: TRAIN AND PREDICT RISK - RANDOM FOREST ====================
     def train_and_predict_churn_with_rf(self, inactivity_periods: int = 3, test_size: float = 0.2):
         """
-        Implementa el ciclo completo de Machine Learning para predecir el riesgo de abandono.
+        Implement the full Machine Learning cycle to predict churn risk.
         """
         print("=" * 80)
         print("FR5: TRAIN MODEL AND PREDICT RISK (RANDOM FOREST)")
@@ -269,7 +269,7 @@ class FunctionalRequirementsAnalyzer:
             return
 
         try:
-            # --- FASE 1: INGENIERÍA DE CARACTERÍSTICAS ---
+            # --- PHASE 1: FEATURES ENGINEERING ---
             print("[PHASE 1] Creating features from aggregated data...")
             
             df_model = self.aggregated_df.set_index(['period', self.customer_col])['total_tons'].unstack(fill_value=0).asfreq('M', fill_value=0).stack().reset_index()
@@ -287,7 +287,7 @@ class FunctionalRequirementsAnalyzer:
             df_model['churn'] = (df_model['periods_since_last_purchase'] >= inactivity_periods).astype(int)
             df_model = df_model.fillna(0)
 
-            # --- FASE 2: PREPARACIÓN Y ENTRENAMIENTO ---
+            # --- PHASE 2: PREPARATION AND TRAINING ---
             print("\n[PHASE 2] Preparing data and training Random Forest model...")
             features = ['total_tons', 'avg_tons_last_3', 'std_tons_last_3', 'periods_since_last_purchase']
             target = 'churn'
@@ -297,8 +297,8 @@ class FunctionalRequirementsAnalyzer:
             
             model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
             model.fit(X_train, y_train)
-            
-            # --- FASE 3: EVALUACIÓN ---
+
+            # --- PHASE 3: EVALUATION ---
             print("\n[PHASE 3] Evaluating model performance...")
             y_pred = model.predict(X_test)
             print("\n--- Model Evaluation Report ---")
@@ -310,8 +310,8 @@ class FunctionalRequirementsAnalyzer:
             feature_importances = pd.Series(model.feature_importances_, index=features).sort_values(ascending=False)
             print("\nFeature Importances for Churn Prediction:")
             print(feature_importances)
-            
-            # --- FASE 4: PREDICCIÓN ---
+
+            # --- PHASE 4: PREDICTION ---
             print("\n[PHASE 4] Predicting churn risk for current customers...")
             df_current = df_model.loc[df_model.groupby(self.customer_col)['period'].idxmax()].copy()
             current_predictions_proba = model.predict_proba(df_current[features])[:, 1]
@@ -333,9 +333,6 @@ class FunctionalRequirementsAnalyzer:
 
 
 def main():
-    """
-    Función principal actualizada para incluir el modelo de Machine Learning.
-    """
     print("CUSTOMER CHURN RISK ANALYSIS SYSTEM")
     print("=" * 80)
     
