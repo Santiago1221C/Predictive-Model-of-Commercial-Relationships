@@ -137,7 +137,6 @@ export default function Dashboard() {
                     {predictionData && (
                         <div>
                             <h3 className="font-bold text-black">5. Prediction Results (Random Forest):</h3>
-                            {/* ---> LA SOLUCIÓN ESTÁ AQUÍ <--- */}
                             <div className="text-sm text-black mt-2">
                                 <h4 className="font-semibold">Evaluation Metrics:</h4>
                                 <p>Accuracy: {(predictionData.evaluation.report.accuracy * 100).toFixed(2)}%</p>
