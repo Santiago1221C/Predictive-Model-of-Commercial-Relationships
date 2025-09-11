@@ -1,431 +1,423 @@
+# The necessary libraries are imported.
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
+import os
+from typing import Dict, Optional, Tuple
 import warnings
+#matplotlib to be able to generate and display graphs.
+import matplotlib.pyplot as plt
+#Scikit-learn libraries for Machine Learning
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score, confusion_matrix, classification_report
+
 warnings.filterwarnings('ignore')
 
-class CustomerAnalyzer:
-    """Customer analysis class that loads all data and shows monthly purchases"""
-    
-    def __init__(self, csv_file):
+
+class FunctionalRequirementsAnalyzer:
+    def __init__(self, csv_file: Optional[str] = None):
         self.csv_file = csv_file
         self.df = None
-        self.rf_model = None
+        self.aggregated_df = None 
         self.customer_col = None
         self.date_col = None
         self.quantity_col = None
-        
-    def detect_columns(self):
-        """Automatically detects the correct columns in the dataset"""
-        print("=" * 80)
-        print("AUTOMATIC COLUMN DETECTION")
-        print("=" * 80)
-        
-        if self.df is None:
-            print("Dataset not loaded yet")
-            return False
-            
-        # Detect customer column (CLT_001, CLT_002, etc.)
-        for col in self.df.columns:
-            if 'clt' in col.lower():
-                self.customer_col = col
-                break
-        
-        # Detect date column
-        for col in self.df.columns:
-            if 'fecha' in col.lower() or 'date' in col.lower():
-                self.date_col = col
-                break
-        
-        # Detect quantity column
-        for col in self.df.columns:
-            if 'cantidad' in col.lower():
-                self.quantity_col = col
-                break
-        
-        print("Detected columns:")
-        print(f"  Customer ID: {self.customer_col}")
-        print(f"  Date: {self.date_col}")
-        print(f"  Quantity: {self.quantity_col}")
-        
-        if not all([self.customer_col, self.date_col, self.quantity_col]):
-            print("\nERROR: Could not detect all necessary columns")
-            print("Available columns:")
-            for i, col in enumerate(self.df.columns, 1):
-                print(f"  {i:2d}. {col}")
-            return False
-        
-        return True
+        self.year_col = None
+        self.month_col = None
     
-    def load_all_data(self):
-        """Loads and analyzes ALL the dataset completely"""
+    # ==================== FUNCTIONAL REQUIREMENT 1: UPLOAD DATA ====================
+    def upload_historical_data(self, file_path: str) -> Dict[str, any]:
         print("=" * 80)
-        print("COMPLETE DATASET ANALYSIS")
+        print("FUNCTIONAL REQUIREMENT 1: UPLOAD HISTORICAL DATA")
         print("=" * 80)
+        
+        result = {
+            'success': False, 'message': '', 'data': None, 'validation_errors': []
+        }
         
         try:
-            self.df = pd.read_csv(self.csv_file)
-            print(f"Dataset loaded successfully")
-            print(f"Total rows: {self.df.shape[0]:,}")
-            print(f"Total columns: {self.df.shape[1]}")
-            print(f"File size: {self.df.memory_usage(deep=True).sum() / 1024 / 1024:.2f} MB")
+            if not os.path.exists(file_path):
+                result['message'] = f"Error: File {file_path} does not exist"
+                return result
             
-            print("\nALL COLUMNS IN THE DATASET:")
-            for i, col in enumerate(self.df.columns, 1):
-                print(f"{i:2d}. {col}")
+            file_extension = file_path.lower().split('.')[-1]
             
-            print("\nFIRST 10 ROWS:")
-            print(self.df.head(10))
+            if file_extension not in ['csv', 'xlsx']:
+                result['message'] = "Error: Only CSV or XLSX formats are accepted"
+                return result
             
-            print("\nLAST 10 ROWS:")
-            print(self.df.tail(10))
-            
-            print("\nDATASET INFORMATION:")
-            print(self.df.info())
-            
-            print("\nCOMPLETE DESCRIPTIVE STATISTICS:")
-            print(self.df.describe())
-            
-            print("\nMISSING VALUES:")
-            missing = self.df.isnull().sum()
-            if missing.sum() > 0:
-                for col, count in missing[missing > 0].items():
-                    print(f"  {col}: {count} ({count/len(self.df)*100:.1f}%)")
+            print(f"Loading file: {file_path}")
+            if file_extension == 'csv':
+                self.df = pd.read_csv(file_path)
             else:
-                print("  No missing values found")
+                self.df = pd.read_excel(file_path)
             
-            print("\nUNIQUE VALUES PER COLUMN:")
-            for col in self.df.columns:
-                unique_count = self.df[col].nunique()
-                print(f"  {col}: {unique_count:,} unique values")
+            print(f"File loaded successfully")
+            print(f"Rows: {self.df.shape[0]:,}, Columns: {self.df.shape[1]}")
             
-            # Auto-detect columns after loading
-            print("\n" + "=" * 80)
-            if self.detect_columns():
-                print("Column detection successful!")
-            else:
-                print("Column detection failed - manual review needed")
-                
-            return True
+            validation_result = self._validate_required_fields()
+            if not validation_result['valid']:
+                result['validation_errors'] = validation_result['errors']
+                result['message'] = "Error: Required fields not found"
+                return result
             
-        except Exception as e:
-            print(f"Error loading dataset: {e}")
-            return False
-    
-    def convert_kg_to_tons(self):
-        """Converts kg columns to tons"""
-        if self.df is None:
-            print("You must load the dataset first")
-            return False
+            print("Required fields validation: SUCCESSFUL")
             
-        print("\n" + "=" * 80)
-        print("CONVERSION FROM KG TO TONS")
-        print("=" * 80)
-        
-        kg_columns = [col for col in self.df.columns if 'kg' in col.lower()]
-        
-        if kg_columns:
-            print(f"Columns found with kg: {kg_columns}")
+            result['success'] = True
+            result['message'] = f"Data loaded successfully: {self.df.shape[0]:,} records"
+            result['data'] = self.df.copy()
             
-            for col in kg_columns:
-                new_col = f'{col}_tons'
-                self.df[new_col] = self.df[col] / 1000
-                print(f"Converted: {col} -> {new_col}")
-                print(f"  Range: {self.df[col].min():.2f} kg - {self.df[col].max():.2f} kg")
-                print(f"  Range: {self.df[new_col].min():.4f} tons - {self.df[new_col].max():.4f} tons")
-        else:
-            print("No columns with kg found")
-            print("Available columns:")
-            for col in self.df.columns:
-                print(f"  - {col}")
-        
-        return True
-    
-    def analyze_customer_monthly(self, customer_id):
-        """Analyzes a specific customer and shows ALL their purchases by month"""
-        if self.df is None:
-            print("You must load the dataset first")
-            return None
-        
-        if not self.detect_columns():
-            print("Cannot analyze customer - column detection failed")
-            return None
-            
-        print(f"\n" + "=" * 80)
-        print(f"CUSTOMER MONTHLY ANALYSIS: {customer_id}")
-        print("=" * 80)
-        
-        print(f"Using customer column: {self.customer_col}")
-        
-        # Filter customer data
-        customer_data = self.df[self.df[self.customer_col] == customer_id]
-        
-        if len(customer_data) == 0:
-            print(f"No data found for customer {customer_id}")
-            print(f"Available customers in {self.customer_col}:")
-            available_customers = self.df[self.customer_col].unique()[:10]
-            for cust in available_customers:
-                print(f"  - {cust}")
-            if len(self.df[self.customer_col].unique()) > 10:
-                print(f"  ... and {len(self.df[self.customer_col].unique()) - 10} more customers")
-            return None
-        
-        print(f"Customer data found: {len(customer_data)} records")
-        
-        try:
-            # Convert to datetime
-            customer_data[self.date_col] = pd.to_datetime(customer_data[self.date_col])
-            
-            # Create month and year columns
-            customer_data['month'] = customer_data[self.date_col].dt.month
-            customer_data['year'] = customer_data[self.date_col].dt.year
-            customer_data['month_name'] = customer_data[self.date_col].dt.strftime('%B')
-            customer_data['quarter'] = customer_data[self.date_col].dt.quarter
-            
-            # Create tons column if it doesn't exist
-            if 'cantidad_tons' not in customer_data.columns:
-                customer_data['cantidad_tons'] = customer_data[self.quantity_col] / 1000
-            
-            # Group by month and year
-            monthly_purchases = customer_data.groupby(['year', 'month', 'month_name']).agg({
-                self.quantity_col: ['sum', 'mean', 'count'],
-                'cantidad_tons': ['sum', 'mean']
-            }).round(4)
-            
-            # Flatten column names
-            monthly_purchases.columns = ['_'.join(col).strip() for col in monthly_purchases.columns]
-            monthly_purchases = monthly_purchases.reset_index()
-            
-            print(f"\nMONTHLY PURCHASES FOR CUSTOMER {customer_id}:")
-            print("=" * 60)
-            print("Year | Month | Total Quantity | Avg Quantity | Purchase Count | Total Tons | Avg Tons")
-            print("-" * 80)
-            
-            for idx, row in monthly_purchases.iterrows():
-                print(f"{row['year']:4d} | {row['month_name']:9s} | {row['sum']:14.2f} | {row['mean']:12.2f} | {row['count']:14d} | {row['sum_1']:10.4f} | {row['mean_1']:8.4f}")
-            
-            # Quarterly summary
-            quarterly_purchases = customer_data.groupby(['year', 'quarter']).agg({
-                self.quantity_col: 'sum',
-                'cantidad_tons': 'sum'
-            }).round(4)
-            
-            print(f"\nQUARTERLY SUMMARY:")
-            print("=" * 40)
-            print("Year | Quarter | Total Quantity | Total Tons")
-            print("-" * 40)
-            
-            for idx, row in quarterly_purchases.iterrows():
-                quarter_name = f"Q{row.name[1]}"
-                print(f"{row.name[0]:4d} | {quarter_name:7s} | {row[self.quantity_col]:14.2f} | {row['cantidad_tons']:10.4f}")
-            
-            # Create visualization
-            plt.figure(figsize=(15, 8))
-            
-            # Monthly purchases over time
-            plt.subplot(2, 1, 1)
-            monthly_purchases['date_label'] = monthly_purchases['year'].astype(str) + '-' + monthly_purchases['month'].astype(str).str.zfill(2)
-            plt.plot(monthly_purchases['date_label'], monthly_purchases['sum'], marker='o', linewidth=2, markersize=8)
-            plt.title(f'Monthly Purchases - Customer {customer_id}')
-            plt.xlabel('Year-Month')
-            plt.ylabel('Total Quantity')
-            plt.xticks(rotation=45)
-            plt.grid(True, alpha=0.3)
-            
-            # Monthly purchase count
-            plt.subplot(2, 1, 2)
-            plt.bar(monthly_purchases['date_label'], monthly_purchases['count'], alpha=0.7, color='orange')
-            plt.title(f'Monthly Purchase Frequency - Customer {customer_id}')
-            plt.xlabel('Year-Month')
-            plt.ylabel('Number of Purchases')
-            plt.xticks(rotation=45)
-            plt.grid(True, alpha=0.3)
-            
-            plt.tight_layout()
-            plt.show()
-            
-            # Show all individual purchases
-            print(f"\nALL INDIVIDUAL PURCHASES FOR CUSTOMER {customer_id}:")
+            print("🎉 UPLOAD COMPLETED SUCCESSFULLY")
             print("=" * 80)
-            print("Date | Quantity | Quantity (tons) | Month | Quarter")
-            print("-" * 80)
-            
-            sorted_purchases = customer_data.sort_values(self.date_col)
-            for idx, row in sorted_purchases.iterrows():
-                print(f"{row[self.date_col].strftime('%Y-%m-%d')} | {row[self.quantity_col]:8.2f} | {row['cantidad_tons']:15.4f} | {row['month_name']:5s} | Q{row['quarter']}")
             
         except Exception as e:
-            print(f"Error processing data: {e}")
-            import traceback
-            traceback.print_exc()
+            result['message'] = f"Error loading file: {str(e)}"
+            print(f"Error: {result['message']}")
         
-        return customer_data
+        return result
     
-    def show_customer_list(self):
-        """Shows list of all customers in the dataset"""
+    def _validate_required_fields(self) -> Dict[str, any]:
+        validation = {'valid': True, 'errors': []}
         if self.df is None:
-            print("You must load the dataset first")
-            return
-        
-        if not self.detect_columns():
-            print("Cannot show customers - column detection failed")
-            return
-        
-        print("\n" + "=" * 80)
-        print("ALL CUSTOMERS IN THE DATASET")
+            validation['valid'] = False; validation['errors'].append("Dataset not loaded"); return validation
+        self._detect_columns()
+        if not self.customer_col:
+            validation['valid'] = False; validation['errors'].append("Customer field not found (looks for: cliente, clt, customer, client)")
+        if not self.date_col:
+            validation['valid'] = False; validation['errors'].append("Date field not found (looks for: fecha, date, anio, mes, year, month)")
+        if not self.quantity_col:
+            validation['valid'] = False; validation['errors'].append("Quantity field not found (looks for: ventas_kg, cantidad, kg, quantity, sales)")
+        if not validation['valid']:
+            validation['errors'].append(f"Available columns: {list(self.df.columns)}")
+        return validation
+    
+    def _detect_columns(self):
+        if self.df is None: return False
+        for col in self.df.columns:
+            if any(keyword in col.lower() for keyword in ['cliente', 'clt', 'customer', 'client']): self.customer_col = col; break
+        date_columns = []
+        for col in self.df.columns:
+            if any(keyword in col.lower() for keyword in ['fecha', 'date', 'anio', 'mes', 'year', 'month']): date_columns.append(col)
+        if 'ANIO' in self.df.columns and 'MES' in self.df.columns:
+            self.date_col = 'ANIO'; self.year_col = 'ANIO'; self.month_col = 'MES'
+        elif date_columns:
+            self.date_col = date_columns[0]
+        for col in self.df.columns:
+            if any(keyword in col.lower() for keyword in ['ventas_kg', 'cantidad', 'kg', 'quantity', 'sales']): self.quantity_col = col; break
+        return True
+    
+    # ==================== FUNCTIONAL REQUIREMENT 2: AGGREGATE DATA ====================
+    def aggregate_purchases_by_customer_and_period(self, period: str = 'month', custom_period: Optional[str] = None) -> Dict[str, any]:
+        print("=" * 80)
+        print("FUNCTIONAL REQUIREMENT 2: AGGREGATE DATA")
         print("=" * 80)
         
-        print(f"Using customer column: {self.customer_col}")
-        
-        # Get unique customers
-        customers = self.df[self.customer_col].unique()
-        print(f"Total unique customers: {len(customers):,}")
-        
-        # Show first 20 customers
-        print(f"\nFirst 20 customers:")
-        for i, customer in enumerate(customers[:20], 1):
-            print(f"{i:2d}. {customer}")
-        
-        if len(customers) > 20:
-            print(f"... and {len(customers) - 20:,} more customers")
-        
-        # Customer statistics
-        customer_stats = self.df.groupby(self.customer_col).size().describe()
-        print(f"\nCustomer purchase statistics:")
-        print(f"  Average purchases per customer: {customer_stats['mean']:.2f}")
-        print(f"  Minimum purchases per customer: {customer_stats['min']:.0f}")
-        print(f"  Maximum purchases per customer: {customer_stats['max']:.0f}")
-    
-    def train_random_forest(self):
-        """Trains basic Random Forest model"""
-        if self.df is None:
-            print("You must load the dataset first")
-            return False
-        
-        if not self.detect_columns():
-            print("Cannot train model - column detection failed")
-            return False
-            
-        print("\n" + "=" * 80)
-        print("RANDOM FOREST TRAINING")
-        print("=" * 80)
+        result = {'success': False, 'message': '', 'aggregated_data': None, 'validation_passed': False}
         
         try:
-            print(f"Using columns:")
-            print(f"  Date: {self.date_col}")
-            print(f"  Customer: {self.customer_col}")
-            print(f"  Quantity: {self.quantity_col}")
+            if self.df is None:
+                result['message'] = "Error: Must load data first"; return result
             
-            # Create basic features
-            self.df[self.date_col] = pd.to_datetime(self.df[self.date_col])
+            print(f"Aggregating data by customer and period: {period}")
+            df_work = self.df.copy()
             
-            if 'cantidad_tons' not in self.df.columns:
-                self.df['cantidad_tons'] = self.df[self.quantity_col] / 1000
+            if hasattr(self, 'year_col') and self.year_col and self.month_col in df_work.columns:
+                df_work['date'] = pd.to_datetime(df_work[self.year_col].astype(str) + '-' + df_work[self.month_col].astype(str).str.zfill(2) + '-01')
+            elif self.date_col in df_work.columns:
+                df_work['date'] = pd.to_datetime(df_work[self.date_col])
+            else:
+                result['message'] = "Cannot create date column."; return result
             
-            # Features per customer
-            features = self.df.groupby(self.customer_col).agg({
-                'cantidad_tons': ['mean', 'std', 'count']
-            }).round(4)
+            if period == 'month': df_work['period'] = df_work['date'].dt.to_period('M'); period_label = 'Month'
+            elif period == 'quarter': df_work['period'] = df_work['date'].dt.to_period('Q'); period_label = 'Quarter'
+            elif period == 'year': df_work['period'] = df_work['date'].dt.to_period('Y'); period_label = 'Year'
+            elif period == 'custom' and custom_period: df_work['period'] = df_work['date'].dt.to_period(custom_period); period_label = f'Period ({custom_period})'
+            else: result['message'] = "Invalid period."; return result
             
-            features.columns = ['quantity_mean', 'quantity_std', 'num_purchases']
-            features = features.reset_index()
+            aggregated = df_work.groupby([self.customer_col, 'period']).agg({self.quantity_col: ['sum']}).round(4)
+            aggregated.columns = ['total_kg']
+            aggregated = aggregated.reset_index()
+            aggregated['total_tons'] = aggregated['total_kg'] / 1000
+
+            self.aggregated_df = aggregated.copy()
             
-            # Target: customer at risk (decrease > 20%)
-            self.df['variation'] = self.df.groupby(self.customer_col)['cantidad_tons'].pct_change() * 100
-            risk = self.df.groupby(self.customer_col)['variation'].apply(
-                lambda x: 1 if (x < -20).any() else 0
-            ).reset_index()
-            risk.columns = [self.customer_col, 'at_risk']
+            result['success'] = True
+            result['message'] = f"Aggregation successful: {len(aggregated):,} records"
+            result['aggregated_data'] = aggregated
             
-            # Join features with target
-            X = features.merge(risk, on=self.customer_col)
-            X_features = X[['quantity_mean', 'quantity_std', 'num_purchases']]
-            y_target = X['at_risk']
-            
-            # Handle null values
-            X_features = X_features.fillna(0)
-            
-            print(f"Features created: {X_features.shape[1]} columns")
-            print(f"Customers analyzed: {len(X_features)}")
-            print(f"Customers at risk: {y_target.sum()}")
-            
-            # Split and train
-            X_train, X_test, y_train, y_test = train_test_split(
-                X_features, y_target, test_size=0.2, random_state=42
-            )
-            
-            # Random Forest
-            self.rf_model = RandomForestClassifier(n_estimators=50, random_state=42)
-            self.rf_model.fit(X_train, y_train)
-            
-            # Evaluate
-            accuracy = self.rf_model.score(X_test, y_test)
-            print(f"\nModel accuracy: {accuracy:.4f}")
-            
-            # Feature importance
-            feature_importance = pd.DataFrame({
-                'feature': X_features.columns,
-                'importance': self.rf_model.feature_importances_
-            }).sort_values('importance', ascending=False)
-            
-            print(f"\nFeature importance:")
-            print(feature_importance)
-            
-            return True
+            print("🎉 AGGREGATION COMPLETED SUCCESSFULLY")
+            print("=" * 80)
             
         except Exception as e:
-            print(f"Error in training: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
+            result['message'] = f"Error in aggregation: {str(e)}"; print(f"Error: {result['message']}")
+        
+        return result
+
+    # ==================== FUNCTIONAL REQUIREMENT 3: VISUALIZE CUSTOMER TRENDS ====================
+    def visualize_customer_trends(self, customer_id: str, chart_type: str = 'line', start_date_str: Optional[str] = None, end_date_str: Optional[str] = None):
+        
+        print("=" * 80)
+        print(f"FUNCTIONAL REQUIREMENT 3: VISUALIZING TRENDS FOR CUSTOMER {customer_id}")
+        print("=" * 80)
+
+        if self.aggregated_df is None:
+            print("Error: You must first add the data (option 2)."); return
+
+        customer_data = self.aggregated_df[self.aggregated_df[self.customer_col] == customer_id].copy()
+
+        if customer_data.empty:
+            print(f"Error: No data found for customer ID '{customer_id}'."); return
+
+        customer_data['period_dt'] = customer_data['period'].dt.to_timestamp()
+        
+        try:
+            if start_date_str:
+                start_date = pd.to_datetime(start_date_str)
+                customer_data = customer_data[customer_data['period_dt'] >= start_date]
+            if end_date_str:
+                end_date = pd.to_datetime(end_date_str)
+                customer_data = customer_data[customer_data['period_dt'] <= end_date]
+        except ValueError:
+            print("Warning: Invalid date format (must be YYYY-MM). Date filter will be ignored.")
+
+        if customer_data.empty:
+            print(f"Error: No data found for customer '{customer_id}' in the specified date range."); return
+
+        customer_data = customer_data.sort_values('period_dt')
+
+        plt.figure(figsize=(12, 6))
+        
+        if chart_type == 'bar':
+            plt.bar(customer_data['period_dt'], customer_data['total_tons'], color='skyblue', label=f'Compras (Toneladas) de {customer_id}')
+        else:
+            plt.plot(customer_data['period_dt'], customer_data['total_tons'], marker='o', linestyle='-', color='b', label=f'Purchasing (Tons) for {customer_id}')
+
+        plt.title(f'Purchasing Trend (Tons) for Client: {customer_id}')
+        plt.xlabel('Period'); plt.ylabel('Total Purchased (Tons)')
+        plt.grid(True, linestyle='--', linewidth=0.5); plt.xticks(rotation=45)
+        plt.legend(); plt.tight_layout()
+
+        print("Displaying chart... Close the chart window to continue.")
+        plt.show()
+
+    # ==================== FUNCTIONAL REQUIREMENT 4: IDENTIFY AT-RISK ====================
+    def identify_at_risk_customers(self, threshold_pct: Optional[float] = None, threshold_value: Optional[float] = None):
+        
+        print("=" * 80)
+        print("FUNCTIONAL REQUIREMENT 4: IDENTIFYING AT-RISK CUSTOMERS")
+        if threshold_pct is not None:
+            print(f"Defined percentage drop threshold: {threshold_pct}%")
+        if threshold_value is not None:
+            print(f"Defined value drop threshold: {threshold_value} tons")
+        print("=" * 80)
+
+        if self.aggregated_df is None:
+            print("Error: You must first add the data (option 2)."); return
+
+        df_risk = self.aggregated_df.copy()
+        df_risk = df_risk.sort_values([self.customer_col, 'period'])
+
+        df_risk['avg_last_3_tons'] = df_risk.groupby(self.customer_col)['total_tons'].transform(
+            lambda x: x.rolling(window=3, min_periods=1).mean().shift(1)
+        )
+        
+        latest_purchases = df_risk.loc[df_risk.groupby(self.customer_col)['period'].idxmax()].copy()
+        
+        latest_purchases['drop_pct'] = np.where(
+            latest_purchases['avg_last_3_tons'] > 0,
+            ((latest_purchases['avg_last_3_tons'] - latest_purchases['total_tons']) / latest_purchases['avg_last_3_tons']) * 100,
+            0
+        )
+        latest_purchases['drop_value'] = latest_purchases['avg_last_3_tons'] - latest_purchases['total_tons']
+
+        at_risk = pd.DataFrame()
+        if threshold_pct is not None:
+            at_risk = latest_purchases[latest_purchases['drop_pct'] >= threshold_pct]
+        elif threshold_value is not None:
+            at_risk = latest_purchases[latest_purchases['drop_value'] >= threshold_value]
+
+        print("\n--- ALERT! At-Risk Customers Detected ---")
+        if not at_risk.empty:
+            display_cols = {
+                self.customer_col: 'Client', 'period': 'Last Period',
+                'total_tons': 'Last Purchase (Tons)', 'avg_last_3_tons': 'Previous Average (Tons)',
+                'drop_pct': '% Drop', 'drop_value': 'Drop (Tons)'
+            }
+            print(at_risk[list(display_cols.keys())].rename(columns=display_cols).to_string(index=False))
+        else:
+            print("No clients were found that meet the risk criteria.")
+        print("=" * 80)
+
+    # ==================== FUNCTIONAL REQUIREMENT 4: TRAIN AND PREDICT RISK - RANDOM FOREST ====================
+    def train_and_predict_churn_with_rf(self, inactivity_periods: int = 3, test_size: float = 0.2):
+        """
+        Implement the full Machine Learning cycle to predict churn risk.
+        """
+        print("=" * 80)
+        print("FR5: TRAIN MODEL AND PREDICT RISK (RANDOM FOREST)")
+        print("=" * 80)
+
+        if self.aggregated_df is None:
+            print("Error: You must aggregate data first (option 2).")
+            return
+        
+        period_frequency = self.aggregated_df['period'].iloc[0].freq.name
+        if period_frequency not in ['M', 'ME']:
+            print("\nError: The Random Forest model requires data to be aggregated monthly.")
+            print(f"Current aggregation is based on a '{period_frequency}' period.")
+            print("--> Please run option 2 again and choose the 'month' aggregation before running the model.")
+            return
+
+        try:
+            # --- PHASE 1: FEATURES ENGINEERING ---
+            print("[PHASE 1] Creating features from aggregated data...")
+            
+            df_model = self.aggregated_df.set_index(['period', self.customer_col])['total_tons'].unstack(fill_value=0).asfreq('M', fill_value=0).stack().reset_index()
+            
+            df_model.columns = ['period', self.customer_col, 'total_tons']
+            df_model = df_model.sort_values([self.customer_col, 'period'])
+
+            df_model['avg_tons_last_3'] = df_model.groupby(self.customer_col)['total_tons'].transform(lambda x: x.rolling(3, 1).mean().shift(1))
+            df_model['std_tons_last_3'] = df_model.groupby(self.customer_col)['total_tons'].transform(lambda x: x.rolling(3, 1).std().shift(1))
+            
+            last_purchase = df_model.loc[df_model['total_tons'] > 0].groupby(self.customer_col)['period'].max()
+            df_model['last_purchase_period'] = df_model[self.customer_col].map(last_purchase)
+            df_model['periods_since_last_purchase'] = (df_model['period'] - df_model['last_purchase_period']).apply(lambda x: x.n if pd.notna(x) else 0)
+
+            df_model['churn'] = (df_model['periods_since_last_purchase'] >= inactivity_periods).astype(int)
+            df_model = df_model.fillna(0)
+
+            # --- PHASE 2: PREPARATION AND TRAINING ---
+            print("\n[PHASE 2] Preparing data and training Random Forest model...")
+            features = ['total_tons', 'avg_tons_last_3', 'std_tons_last_3', 'periods_since_last_purchase']
+            target = 'churn'
+            X = df_model[features]
+            y = df_model[target]
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42, stratify=y)
+            
+            model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
+            model.fit(X_train, y_train)
+
+            # --- PHASE 3: EVALUATION ---
+            print("\n[PHASE 3] Evaluating model performance...")
+            y_pred = model.predict(X_test)
+            print("\n--- Model Evaluation Report ---")
+            print(f"Accuracy: {accuracy_score(y_test, y_pred):.2f}")
+            print(classification_report(y_test, y_pred))
+            print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
+            print("---------------------------------")
+            
+            feature_importances = pd.Series(model.feature_importances_, index=features).sort_values(ascending=False)
+            print("\nFeature Importances for Churn Prediction:")
+            print(feature_importances)
+
+            # --- PHASE 4: PREDICTION ---
+            print("\n[PHASE 4] Predicting churn risk for current customers...")
+            df_current = df_model.loc[df_model.groupby(self.customer_col)['period'].idxmax()].copy()
+            current_predictions_proba = model.predict_proba(df_current[features])[:, 1]
+            df_current['churn_probability'] = current_predictions_proba
+            at_risk_customers = df_current[df_current['churn_probability'] > 0.5].sort_values('churn_probability', ascending=False)
+
+            print("\n--- ACTION REQUIRED! Customers with High Churn Risk ---")
+            if not at_risk_customers.empty:
+                display_cols = [self.customer_col, 'churn_probability', 'periods_since_last_purchase', 'total_tons']
+                print(at_risk_customers[display_cols].to_string(index=False))
+            else:
+                print("Good news! No customers show a high risk of churn at this moment.")
+            print("=" * 80)
+            
+        except Exception as e:
+            print("\n--- An error occurred during model training or prediction ---")
+            print(f"Error details: {e}")
+            print("Please check your data or the model parameters.")
+
 
 def main():
-    """Main function"""
     print("CUSTOMER CHURN RISK ANALYSIS SYSTEM")
-    print("FIRST COMMIT - Complete data analysis and monthly purchases")
     print("=" * 80)
     
-    analyzer = CustomerAnalyzer('ventas_anonimizadas.csv')
+    analyzer = FunctionalRequirementsAnalyzer()
     
     while True:
         print("\n" + "=" * 80)
-        print("MAIN MENU")
+        print("FUNCTIONAL REQUIREMENTS MENU")
         print("=" * 80)
-        print("1. Load ALL dataset (complete analysis)")
-        print("2. Convert kg to tons")
-        print("3. Show all customers list")
-        print("4. Analyze customer monthly purchases")
-        print("5. Train Random Forest")
+        print("1. Upload historical data (CSV/XLSX)")
+        print("2. Aggregate data by customer and period")
+        print("3. Visualize customer purchase trends")
+        print("4. Identify at-risk customers (Rule-Based)")
+        print("5. Predict churn risk (Random Forest Model)")
         print("6. Exit")
         print("=" * 80)
         
         option = input("\nSelect an option (1-6): ").strip()
         
         if option == "1":
-            analyzer.load_all_data()
+            print("\n--- UPLOAD HISTORICAL DATA ---")
+            file_path = input("Enter file path (or press Enter for 'ventas_anonimizadas.csv'): ").strip()
+            if not file_path: file_path = 'ventas_anonimizadas.csv'
+            analyzer.upload_historical_data(file_path)
             
         elif option == "2":
-            analyzer.convert_kg_to_tons()
-            
+            print("\n--- AGGREGATE DATA ---")
+            if analyzer.df is None: print("Must load data first (option 1)"); continue
+            print("Available periods: month, quarter, year, custom")
+            period = input("Select period (default 'month'): ").strip().lower()
+            if not period: period = 'month'
+            custom_period = None
+            if period == 'custom': custom_period = input("Enter custom period (e.g., W, 2W): ").strip()
+            analyzer.aggregate_purchases_by_customer_and_period(period, custom_period)
+
         elif option == "3":
-            analyzer.show_customer_list()
+            print("\n--- VISUALIZE CUSTOMER TRENDS ---")
+            if analyzer.aggregated_df is None: print("You must aggregate data first (option 2)."); continue
+            customer_id = input("Enter the Customer ID to visualize: ").strip()
+            if not customer_id: print("Customer ID cannot be empty."); continue
             
+            start_date = input("Enter start date (YYYY-MM, optional, press Enter to skip): ").strip()
+            end_date = input("Enter end date (YYYY-MM, optional, press Enter to skip): ").strip()
+
+            chart_type = input("Enter chart type ('line' or 'bar', default 'line'): ").strip().lower()
+            if chart_type not in ['line', 'bar']: chart_type = 'line'
+            analyzer.visualize_customer_trends(customer_id, chart_type, start_date, end_date)
+
         elif option == "4":
-            customer_id = input("Enter customer ID to analyze: ").strip()
-            analyzer.analyze_customer_monthly(customer_id)
+            print("\n--- IDENTIFY AT-RISK CUSTOMERS ---")
+            if analyzer.aggregated_df is None: print("You must aggregate data first (option 2)."); continue
             
+            threshold_type = input("Choose threshold type ('percentage' or 'value', default 'percentage'): ").strip().lower()
+            
+            try:
+                if threshold_type == 'value':
+                    threshold_str = input("Enter the purchase drop threshold in Tons (e.g., 50): ").strip()
+                    threshold = float(threshold_str)
+                    analyzer.identify_at_risk_customers(threshold_value=threshold)
+                else:
+                    threshold_str = input("Enter the purchase drop threshold % (default 30.0): ").strip()
+                    threshold = float(threshold_str) if threshold_str else 30.0
+                    analyzer.identify_at_risk_customers(threshold_pct=threshold)
+            except ValueError:
+                print("Invalid threshold. Please enter a valid number.")
+
         elif option == "5":
-            analyzer.train_random_forest()
+            print("\n--- PREDICT CHURN RISK (RANDOM FOREST) ---")
+            if analyzer.aggregated_df is None: print("You must aggregate data first (option 2)."); continue
             
+            try:
+                inactivity_str = input("Enter inactivity periods to define churn (default 3): ").strip()
+                inactivity = int(inactivity_str) if inactivity_str else 3
+                
+                analyzer.train_and_predict_churn_with_rf(inactivity_periods=inactivity)
+            except ValueError:
+                print("Invalid number. Please enter an integer.")
+
         elif option == "6":
-            print("Thank you for using the system")
-            print("First commit completed - Complete data analysis implemented")
+            print("\nThank you for using the system!")
             break
             
         else:
-            print("Invalid option. Please select 1-6.")
+            print("Invalid option. Please select a valid option.")
+
 
 if __name__ == "__main__":
     main()
