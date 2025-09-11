@@ -1,0 +1,27 @@
+# Archivos de Sistema Operativo
+.DS_Store
+Thumbs.db
+
+# Archivos de Entorno Virtual de Python (Backend)
+/backend/venv/
+/backend/env/
+/backend/__pycache__/
+/backend/*.pyc
+
+# Dependencias de Node.js (Frontend)
+/frontend/node_modules/
+
+# Archivos de build y caché de Next.js (Frontend)
+/frontend/.next/
+/frontend/out/
+
+# Archivos de entorno y logs (Frontend)
+/frontend/.env.local
+/frontend/.env.*.local
+/frontend/npm-debug.log*
+/frontend/yarn-debug.log*
+/frontend/yarn-error.log*
+
+# Archivos de IDEs (opcional pero recomendado)
+.vscode/
+.idea/
