@@ -1,12 +1,16 @@
 # api.py
 # IMPORTANTE: Este archivo espera que el orquestador esté en processing/analyzer.py
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, Response, jsonify
 from flask_cors import CORS
 import pandas as pd
 from processing.analyzer import FunctionalRequirementsAnalyzer
 import warnings
 import os
+import io
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from werkzeug.utils import secure_filename
 
 # Suprimir advertencias de sklearn/pandas para una consola más limpia
 warnings.filterwarnings('ignore')
@@ -15,6 +19,9 @@ app = Flask(__name__)
 # Permite que el frontend React se comunique con el API
 CORS(app) 
 analyzer = FunctionalRequirementsAnalyzer()
+
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # =======================================================
 # UTILITY
@@ -44,31 +51,41 @@ def load_default_data_if_needed():
 
 @app.route('/api/upload', methods=['POST'])
 def handle_upload():
-    """FR1: Carga datos y devuelve los IDs de cliente disponibles."""
-    body = request.get_json()
-    # Usar 'ventas_anonimizadas.csv' como valor por defecto
-    file_path = body.get('filePath', 'ventas_anonimizadas.csv')
-    
-    # Si el frontend envía solo el nombre del archivo por defecto, construimos la ruta absoluta
-    if file_path == 'ventas_anonimizadas.csv':
-        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', file_path)
-    
-    # Resetear el analizador para una nueva carga
+    """FR1: Carga datos desde un archivo CSV subido por el usuario."""
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'message': 'No file part in request'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'message': 'No selected file'}), 400
+
+    # Asegurar nombre seguro y ruta temporal
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    file.save(file_path)
+
+    # Reiniciar el analizador y cargar el archivo
     global analyzer
     analyzer = FunctionalRequirementsAnalyzer()
-    
     result = analyzer.upload_historical_data(file_path)
-    
+
+    # Agregar lista de clientes
     if result['success'] and analyzer.df is not None:
         customer_col = analyzer.customer_col
         if customer_col:
-            customers = analyzer.df[customer_col].unique().tolist()
-            result['customers'] = customers
+            result['customers'] = analyzer.df[customer_col].unique().tolist()
         else:
-            result['message'] = "Data loaded but customer column was not detected. Check file format."
             result['success'] = False
-            
+            result['message'] = "File loaded, but customer column could not be detected."
+
+    # Opcional: eliminar el archivo temporal después de cargarlo
+    try:
+        os.remove(file_path)
+    except OSError:
+        pass
+
     return jsonify(result)
+
 
 @app.route('/api/aggregate', methods=['POST'])
 def handle_aggregate():
@@ -221,6 +238,37 @@ def handle_predict_risk():
         result['evaluation_report'] = report_df.to_dict('records')
         
     return jsonify(result)
+
+@app.route('/api/flag-drops', methods=['POST'])
+def handle_flag_drops():
+    """Flag customers with significant purchase drops."""
+    load_default_data_if_needed()
+    if analyzer.aggregated_df is None:
+        return jsonify({'success': False, 'message': 'Data must be aggregated first.'}), 400
+
+    body = request.get_json()
+    drop_pct = float(body.get('thresholdPct', 30.0))
+    drop_value = float(body.get('thresholdValue', 5.0))
+
+    df_flags = analyzer.flag_significant_drops(drop_pct_threshold=drop_pct, drop_value_threshold=drop_value)
+    if df_flags.empty:
+        return jsonify({'success': True, 'data': [], 'message': 'No significant drops detected.'})
+
+    return jsonify(df_flags.to_dict(orient='records'))
+
+@app.route('/api/download-flags', methods=['GET'])
+def download_flags():
+    """Descargar flags generados como CSV."""
+    if not hasattr(analyzer.flagger, "flags") or not analyzer.flagger.flags:
+        return jsonify({"error": "No flags generated yet"}), 400
+
+    df_flags = pd.DataFrame(analyzer.flagger.flags)
+    csv_buffer = io.StringIO()
+    df_flags.to_csv(csv_buffer, index=False, encoding="utf-8-sig")
+    csv_buffer.seek(0)
+
+    filename = f"flags_{datetime.now(ZoneInfo('America/Bogota')).strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(csv_buffer.getvalue(), mimetype="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 if __name__ == '__main__':
     # No se intenta cargar datos por defecto aquí, la carga se realiza en los endpoints si es necesario.

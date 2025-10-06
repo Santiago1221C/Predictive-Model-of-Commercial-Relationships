@@ -10,6 +10,8 @@ try:
     from ..data.data_aggregator import DataAggregator
     from .analysis_reporter import AnalysisReporter
     from ..models.ml_model import ChurnPredictor
+    from .flag_reporter import FlagReporter
+    
 except ImportError:
     # Si fallan, intentar imports absolutos con sys.path
     import sys
@@ -20,6 +22,7 @@ except ImportError:
     from data.data_aggregator import DataAggregator
     from processing.analysis_reporter import AnalysisReporter
     from models.ml_model import ChurnPredictor
+    from processing.flag_reporter import FlagReporter
 
 class FunctionalRequirementsAnalyzer:
     """
@@ -44,6 +47,7 @@ class FunctionalRequirementsAnalyzer:
         self.aggregator = DataAggregator()
         self.reporter = AnalysisReporter()
         self.predictor = ChurnPredictor()
+        self.flagger = FlagReporter()
         
         if csv_file:
             self.upload_historical_data(csv_file)
@@ -118,3 +122,14 @@ class FunctionalRequirementsAnalyzer:
         # ====================================
 
         return result
+        
+    def flag_significant_drops(self, drop_pct_threshold: float = 30.0, drop_value_threshold: float = 5.0) -> pd.DataFrame:
+        if self.aggregated_df is None or not self.customer_col:
+            return pd.DataFrame()
+        return self.flagger.flag_significant_drops(
+            aggregated_df=self.aggregated_df,
+            customer_col=self.customer_col,
+            drop_pct_threshold=drop_pct_threshold,
+            drop_value_threshold=drop_value_threshold
+        )
+

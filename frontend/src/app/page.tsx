@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Logo from '@/components/Logo';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Database, GitCommit, BarChartHorizontal, Search, Brain, Loader2 } from 'lucide-react';
@@ -15,6 +15,33 @@ export default function Dashboard() {
     const [trendsData, setTrendsData] = useState([]);
     const [riskData, setRiskData] = useState([]);
     const [predictionData, setPredictionData] = useState(null);
+
+    const [flagData, setFlagData] = useState([]);
+    const [visibleCols, setVisibleCols] = useState<string[]>([]);
+    const [searchId, setSearchId] = useState("");
+    const [rowsLimit, setRowsLimit] = useState(10);
+
+    const COLUMN_LABELS: Record<string, string> = {
+        customer_id: "Customer ID",
+        period: "Period",
+        last_purchase: "Last Purchase (Tons)",
+        avg_last_3_periods: "Avg Last 3 Periods (Tons)",
+        drop_pct: "Drop (%)",
+        drop_value: "Drop (Tons)",
+        justification: "Justification",
+        timestamp: "Generated At",
+      };
+      
+
+    useEffect(() => {
+        if (flagData.length > 0) {
+          const cols = Object.keys(flagData[0]).filter(
+            (c) => c !== "applied_pct_threshold" && c !== "applied_value_threshold"
+          );
+          setVisibleCols(cols);
+        }
+      }, [flagData]);
+      
 
     const callApi = async (endpoint, options, errorMsg) => {
         setLoading(true);
@@ -32,16 +59,37 @@ export default function Dashboard() {
     };
 
     // --- Manejadores para cada Requerimiento Funcional ---
-
-    const handleUpload = async () => {
-        const filePath = prompt("Enter file path (or press Enter for 'ventas_anonimizadas.csv'):", 'ventas_anonimizadas.csv') || 'ventas_anonimizadas.csv';
-        const data = await callApi('/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath }) }, 'Upload Failed');
-        if (data) {
+    const handleUpload = async (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+      
+        setLoading(true); // ⬅️ activa el spinner
+      
+        const formData = new FormData();
+        formData.append("file", file);
+      
+        try {
+          const response = await fetch("http://localhost:5000/api/upload", {
+            method: "POST",
+            body: formData,
+          });
+      
+          const data = await response.json();
+          if (data.success) {
             setUploadResult(data.data);
             setCustomers(data.customers);
             setStep(1);
+          } else {
+            alert("Upload failed: " + data.message);
+          }
+        } catch (err) {
+          alert("Error during upload: " + err.message);
+        } finally {
+          setLoading(false); // ⬅️ desactiva el spinner
         }
     };
+      
+      
 
     const handleAggregate = async () => {
         const period = prompt("Select period (month, quarter, year):", 'month') || 'month';
@@ -104,6 +152,20 @@ export default function Dashboard() {
         }
     };
 
+    const handleFlagDrops = async () => {
+        const pct = parseFloat(prompt("Enter drop % threshold:", "30.0")) || 30.0;
+        const val = parseFloat(prompt("Enter drop value threshold (tons):", "5.0")) || 5.0;
+      
+        const payload = { thresholdPct: pct, thresholdValue: val };
+        const data = await callApi(
+          "/flag-drops",
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+          "Flagging Failed"
+        );
+        if (data) setFlagData(data);
+    };
+      
+
     const handlePredictRisk = async () => {
         const data = await callApi('/predict-risk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }, 'Prediction Failed');
         if (data) {
@@ -126,7 +188,15 @@ export default function Dashboard() {
         return (
             <div className="overflow-x-auto mt-4 text-black">
                 <table className="min-w-full text-sm divide-y divide-gray-300">
-                    <thead className="bg-gray-100"><tr className="text-left text-xs font-semibold uppercase">{headers.map(h => <th key={h} className="px-4 py-2">{h}</th>)}</tr></thead>
+                    <thead className="bg-gray-100">
+                        <tr className="text-left text-xs font-semibold uppercase">
+                            {headers.map((h) => (
+                                <th key={h} className="px-4 py-2">
+                                    {COLUMN_LABELS[h] || h.replace(/_/g, " ")}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                         {data.map((row, i) => (
                             <tr key={i}>
@@ -150,13 +220,13 @@ export default function Dashboard() {
             
             <main className="max-w-7xl mx-auto p-8 space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                    <button onClick={handleUpload} className="p-4 bg-blue-600 text-white rounded shadow hover:bg-blue-700">1. Upload Data</button>
+                    <label className="p-4 bg-blue-600 text-white text-center rounded shadow hover:bg-blue-700 cursor-pointer">1. Upload Data<input type="file" accept=".csv" onChange={handleUpload} className="hidden" /></label>
                     <button onClick={handleAggregate} disabled={step < 1} className="p-4 bg-green-600 text-white rounded shadow hover:bg-green-700 disabled:opacity-50">2. Aggregate Data</button>
                     <button onClick={handleVisualize} disabled={step < 2} className="p-4 bg-teal-600 text-white rounded shadow hover:bg-teal-700 disabled:opacity-50">3. Visualize Trends</button>
                     <button onClick={handleIdentifyRisk} disabled={step < 2} className="p-4 bg-amber-600 text-white rounded shadow hover:bg-amber-700 disabled:opacity-50">4. Identify Risk (Rules)</button>
                     <button onClick={handlePredictRisk} disabled={step < 2} className="p-4 bg-purple-600 text-white rounded shadow hover:bg-purple-700 disabled:opacity-50">5. Predict Risk (ML)</button>
+                    <button onClick={handleFlagDrops} disabled={step < 2} className="p-4 bg-red-600 text-white rounded shadow hover:bg-red-700 disabled:opacity-50">6. Flag Drops</button>
                 </div>
-
                 <div className="bg-white p-6 rounded-lg shadow space-y-6">
                     {uploadResult && <div><h3 className="font-bold text-black">1. Upload Result:</h3><p className="text-sm text-black">Rows: {uploadResult.totalRows}, Columns: {uploadResult.totalColumns}</p></div>}
                     {aggResult && <div><h3 className="font-bold text-black">2. Aggregation Result:</h3><p className="text-sm text-black">{aggResult}</p></div>}
@@ -194,6 +264,70 @@ export default function Dashboard() {
                             <div className="mt-4"><h4 className="font-semibold text-black">High Churn Risk Customers:</h4>{renderTable(predictionData.predictions)}</div>
                         </div>
                     )}
+                    {flagData.length > 0 && (
+                        <div>
+                            <h3 className="font-bold text-black">6. Significant Purchase Drops:</h3>
+                            <p className="text-sm text-black mb-2">Applied Percent Threshold: {flagData[0].applied_pct_threshold}%</p>
+                            <p className="text-sm text-black mb-2">Applied Value Threshold: {flagData[0].applied_value_threshold}</p>
+                            {/* Filtros */}
+                            <div className="my-2 space-y-2 text-black">
+                                {/* Buscar por ID */}
+                                <input type="text" placeholder="Search by Customer ID" value={searchId} onChange={(e) => setSearchId(e.target.value)} className="border p-1 rounded" />
+                                {/* Selección de columnas */}
+                                <div className="flex flex-wrap gap-2">
+                                    {Object.keys(flagData[0])
+                                    .filter((c) => c !== "applied_pct_threshold" && c !== "applied_value_threshold")
+                                    .map((col) => (
+                                        <label key={col} className="text-sm">
+                                        <input type="checkbox" checked={visibleCols.includes(col)}
+                                            onChange={() =>
+                                            setVisibleCols((prev) =>
+                                                prev.includes(col)
+                                                ? prev.filter((c) => c !== col)
+                                                : [
+                                                    ...Object.keys(flagData[0]).filter(
+                                                        (x) =>
+                                                        x !== "applied_pct_threshold" &&
+                                                        x !== "applied_value_threshold" &&
+                                                        (prev.includes(x) || x === col)
+                                                    ),
+                                                    ]
+                                            )
+                                            }
+                                        />
+                                        {COLUMN_LABELS[col] || col}
+                                        </label>
+                                    ))}
+                                </div>
+                                {/* Límite de filas */}
+                                <select value={rowsLimit} onChange={(e) => setRowsLimit(parseInt(e.target.value))} className="border p-1 rounded" >
+                                    <option value={10}>10 rows</option>
+                                    <option value={20}>20 rows</option>
+                                    <option value={50}>50 rows</option>
+                                    <option value={100}>100 rows</option>
+                                    <option value={flagData.length}>All rows</option>
+                                </select>
+                            </div>
+                            {/* Tabla filtrada */}
+                            {renderTable(
+                                flagData
+                                    .filter((row) =>
+                                    row.customer_id?.toLowerCase().includes(searchId.toLowerCase())
+                                    )
+                                    .slice(0, rowsLimit)
+                                    .map((row) => {
+                                    const filtered: any = {};
+                                    visibleCols.forEach((col) => (filtered[col] = row[col]));
+                                    return filtered;
+                                    })
+                            )}
+
+                            <div className="mt-2">
+                                <a href="http://localhost:5000/api/download-flags" className="inline-block px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600" > Download Flags (CSV) </a>
+                            </div>
+                        </div>
+                        )}
+
                 </div>
             </main>
         </div>
