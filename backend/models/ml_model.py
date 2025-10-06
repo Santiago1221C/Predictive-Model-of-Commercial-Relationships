@@ -50,8 +50,16 @@ class ChurnPredictor:
             # --- FASE 2: Entrenamiento del Modelo ---
             features = ['total_tons', 'avg_tons_last_3', 'std_tons_last_3', 'periods_since_last_purchase']
             target = 'churn'
-            X = df_model.dropna(subset=features)[features]
-            y = df_model.dropna(subset=features)[target]
+            
+            # Asegurar que haya suficientes datos para entrenar
+            X = df_model.dropna(subset=features)
+            X = X[X[target].isin([0, 1])].copy() # Filtrar filas con target definido
+            
+            if X.shape[0] < 20: # Un umbral bajo para la división de entrenamiento/prueba
+                 raise Exception(f"Insufficient data for training after feature engineering (rows: {X.shape[0]}).")
+                 
+            y = X[target]
+            X = X[features]
             
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42, stratify=y)
             self.model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
@@ -65,10 +73,16 @@ class ChurnPredictor:
             # --- FASE 4: Predicción para Clientes Actuales ---
             # Obtener el registro más reciente para cada cliente
             df_current = df_model.loc[df_model.groupby(customer_col)['period'].idxmax()].copy()
+            
+            if df_current.empty:
+                raise Exception("No current records found for prediction.")
+
+            # Aplicar predicción
             probabilities = self.model.predict_proba(df_current[features])
             df_current['churn_probability'] = probabilities[:, 1] if probabilities.shape[1] == 2 else 0
             
-            at_risk_customers = df_current[df_current['churn_probability'] > 0.5].sort_values('churn_probability', ascending=False)
+            # DEVOLVER TODOS los clientes, ordenados por probabilidad (CORRECCIÓN)
+            all_current_predictions = df_current.sort_values('churn_probability', ascending=False)
             
             print("🎉 PREDICTION COMPLETED SUCCESSFULLY")
             return {
@@ -78,7 +92,7 @@ class ChurnPredictor:
                     'confusion_matrix': confusion_matrix(y_test, y_pred).tolist() 
                 },
                 'feature_importances': feature_importances.to_dict(),
-                'predictions': at_risk_customers[[customer_col, 'churn_probability', 'periods_since_last_purchase', 'total_tons']].to_dict('records')
+                'predictions': all_current_predictions[[customer_col, 'churn_probability', 'periods_since_last_purchase', 'total_tons']].to_dict('records')
             }
         except Exception as e:
             print(f"\n--- An error occurred during model training or prediction ---\nError details: {e}")

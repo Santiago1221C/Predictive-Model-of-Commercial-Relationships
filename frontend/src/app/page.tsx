@@ -77,8 +77,31 @@ export default function Dashboard() {
             const pct = parseFloat(prompt("Enter the purchase drop threshold % (e.g., 30.0):", '30.0'));
             if (!isNaN(pct)) payload.thresholdPct = pct;
         }
-        const data = await callApi('/identify-risk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Risk Identification Failed');
-        if (data) setRiskData(data);
+        
+        const response = await callApi('/identify-risk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Risk Identification Failed');
+        
+        if (response) {
+            // Usar directamente la propiedad 'data' que viene del backend
+            if (response.data && Array.isArray(response.data)) {
+                setRiskData(response.data);
+            } 
+            // Si no hay 'data', intentar encontrar un array en alguna propiedad
+            else {
+                let dataFound = false;
+                
+                for (const key of Object.keys(response)) {
+                    if (Array.isArray(response[key]) && response[key].length > 0) {
+                        setRiskData(response[key]);
+                        dataFound = true;
+                        break;
+                    }
+                }
+                
+                if (!dataFound) {
+                    alert("No se encontraron clientes en riesgo con los criterios especificados.");
+                }
+            }
+        }
     };
 
     const handlePredictRisk = async () => {
@@ -90,13 +113,31 @@ export default function Dashboard() {
     };
 
     const renderTable = (data) => {
-        if (!data || data.length === 0) return <p className="text-sm text-black">No data to display.</p>;
+        if (!data || !Array.isArray(data) || data.length === 0) {
+            return <p className="text-sm text-black">No hay datos para mostrar.</p>;
+        }
+        
+        if (typeof data[0] !== 'object' || data[0] === null) {
+            return <p className="text-sm text-black">Error: Los datos no tienen el formato esperado.</p>;
+        }
+        
         const headers = Object.keys(data[0]);
+        
         return (
             <div className="overflow-x-auto mt-4 text-black">
                 <table className="min-w-full text-sm divide-y divide-gray-300">
                     <thead className="bg-gray-100"><tr className="text-left text-xs font-semibold uppercase">{headers.map(h => <th key={h} className="px-4 py-2">{h}</th>)}</tr></thead>
-                    <tbody className="bg-white divide-y divide-gray-200">{data.map((row, i) => <tr key={i}>{headers.map(h => <td key={h} className="px-4 py-2 whitespace-nowrap">{typeof row[h] === 'number' ? row[h].toFixed(4) : row[h]}</td>)}</tr>)}</tbody>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                        {data.map((row, i) => (
+                            <tr key={i}>
+                                {headers.map(h => (
+                                    <td key={h} className="px-4 py-2 whitespace-nowrap">
+                                        {typeof row[h] === 'number' ? row[h].toFixed(2) : row[h]?.toString() || 'N/A'}
+                                    </td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
                 </table>
             </div>
         );
@@ -133,7 +174,14 @@ export default function Dashboard() {
                             </div>
                         </div>
                     )}
-                    {riskData.length > 0 && <div><h3 className="font-bold text-black">4. At-Risk Customers (Rule-Based):</h3>{renderTable(riskData)}</div>}
+                    
+                    {riskData && riskData.length > 0 && 
+                        <div>
+                            <h3 className="font-bold text-black">4. At-Risk Customers (Rules-Based):</h3>
+                            {renderTable(riskData)}
+                        </div>
+                    }
+                    
                     {predictionData && (
                         <div>
                             <h3 className="font-bold text-black">5. Prediction Results (Random Forest):</h3>

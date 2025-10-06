@@ -3,11 +3,23 @@
 import pandas as pd
 from typing import Dict, Optional
 
-# Importaciones CORREGIDAS usando rutas absolutas basadas en la nueva estructura de carpetas
-from data.data_loader import DataLoader
-from data.data_aggregator import DataAggregator
-from processing.analysis_reporter import AnalysisReporter
-from models.ml_model import ChurnPredictor
+# Importaciones CORREGIDAS usando rutas relativas
+try:
+    # Intentar imports relativos primero
+    from ..data.data_loader import DataLoader
+    from ..data.data_aggregator import DataAggregator
+    from .analysis_reporter import AnalysisReporter
+    from ..models.ml_model import ChurnPredictor
+except ImportError:
+    # Si fallan, intentar imports absolutos con sys.path
+    import sys
+    import os
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+    
+    from data.data_loader import DataLoader
+    from data.data_aggregator import DataAggregator
+    from processing.analysis_reporter import AnalysisReporter
+    from models.ml_model import ChurnPredictor
 
 class FunctionalRequirementsAnalyzer:
     """
@@ -92,8 +104,17 @@ class FunctionalRequirementsAnalyzer:
     def train_and_predict_churn_with_rf(self, test_size: float = 0.2) -> Dict:
         if self.aggregated_df is None or not self.customer_col:
             return {'success': False, 'message': "Error: You must aggregate data first."}
-        return self.predictor.train_and_predict_churn_with_rf(
+            
+        result = self.predictor.train_and_predict_churn_with_rf(
             aggregated_df=self.aggregated_df,
             customer_col=self.customer_col,
             test_size=test_size
         )
+        
+        # === AÑADIR COMPROBACIÓN ADICIONAL ===
+        if result.get('success') and not result.get('predictions'):
+            # Si 'success' es True pero 'predictions' está vacío (o no existe)
+            return {'success': False, 'message': "ML Model trained successfully, but no predictions were generated (predictions list is empty). Check data format."}
+        # ====================================
+
+        return result

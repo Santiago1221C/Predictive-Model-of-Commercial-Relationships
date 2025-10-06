@@ -4,7 +4,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pandas as pd
-# Importación CORREGIDA para tu nueva estructura de carpetas
 from processing.analyzer import FunctionalRequirementsAnalyzer
 import warnings
 import os
@@ -20,17 +19,24 @@ analyzer = FunctionalRequirementsAnalyzer()
 # =======================================================
 # UTILITY
 # =======================================================
-def try_to_load_data_if_needed():
-    """Intenta cargar datos por defecto si el analizador está vacío, por conveniencia."""
+
+def load_default_data_if_needed():
+    """Carga los datos por defecto si el analizador no tiene un DataFrame cargado."""
+    global analyzer
     if analyzer.df is None:
         print("\n[INFO] Analyzer initialized without data. Attempting to load 'ventas_anonimizadas.csv'...")
-        # Usa el path absoluto para asegurar que se encuentra el CSV
-        default_path = 'ventas_anonimizadas.csv'
-        if os.path.exists(default_path):
-            analyzer.upload_historical_data(default_path)
-        else:
-            print(f"[ERROR] Default file {default_path} not found. Please run create_dummy_data.py.")
-    
+        
+        # Construir la ruta relativa al directorio raíz del proyecto:
+        # (Directorio de api.py -> subir un nivel -> nombre del archivo)
+        default_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ventas_anonimizadas.csv')
+        
+        # Cargar los datos. Asumimos que el archivo existe en la ruta.
+        result = analyzer.upload_historical_data(default_path)
+        
+        if not result['success']:
+            # Si falla, el analizador.df seguirá siendo None y el endpoint devolverá 400.
+            print(f"[WARNING] Failed to load default data: {result['message']}")
+
 
 # =======================================================
 # API ENDPOINTS
@@ -40,7 +46,12 @@ def try_to_load_data_if_needed():
 def handle_upload():
     """FR1: Carga datos y devuelve los IDs de cliente disponibles."""
     body = request.get_json()
+    # Usar 'ventas_anonimizadas.csv' como valor por defecto
     file_path = body.get('filePath', 'ventas_anonimizadas.csv')
+    
+    # Si el frontend envía solo el nombre del archivo por defecto, construimos la ruta absoluta
+    if file_path == 'ventas_anonimizadas.csv':
+        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', file_path)
     
     # Resetear el analizador para una nueva carga
     global analyzer
@@ -62,7 +73,7 @@ def handle_upload():
 @app.route('/api/aggregate', methods=['POST'])
 def handle_aggregate():
     """FR2: Agrega datos por período (mes, trimestre, año)."""
-    try_to_load_data_if_needed()
+    load_default_data_if_needed() 
     if analyzer.df is None:
         return jsonify({'success': False, 'message': 'No data loaded. Please upload data first.'}), 400
         
@@ -82,8 +93,10 @@ def handle_aggregate():
 @app.route('/api/visualize', methods=['POST'])
 def handle_visualize():
     """FR3: Devuelve datos de tendencia para un cliente específico."""
-    try_to_load_data_if_needed()
+    load_default_data_if_needed()
     if analyzer.aggregated_df is None:
+        # Si no hay df agregado, se asume que aún no se ha agregado la data por primera vez. 
+        # Si load_default_data_if_needed() fue exitoso, el df ya no es None.
         return jsonify({'success': False, 'message': 'Data must be aggregated before visualization.'}), 400
         
     body = request.get_json()
@@ -102,35 +115,93 @@ def handle_visualize():
 @app.route('/api/identify-risk', methods=['POST'])
 def handle_identify_risk():
     """FR4: Identifica clientes en riesgo utilizando reglas de umbral simple (caída vs. promedio anterior)."""
-    try_to_load_data_if_needed()
-    if analyzer.aggregated_df is None:
-        return jsonify({'success': False, 'message': 'Data must be aggregated before identifying risk.'}), 400
+    try:
+        load_default_data_if_needed()
+        if analyzer.df is None:
+            return jsonify({'success': False, 'message': 'No data loaded. Please upload data first.'}), 400
         
-    body = request.get_json()
-    df_risk = analyzer.identify_at_risk_customers(
-        threshold_pct=body.get('thresholdPct'),
-        threshold_value=body.get('thresholdValue')
-    )
-    
-    if not df_risk.empty:
-        # Definir cómo se mostrarán las columnas en el frontend
-        display_cols = {
-            analyzer.customer_col: 'Client', 'period': 'Last Period', 'total_tons': 'Last Purchase (Tons)',
-            'avg_last_3_tons': 'Previous Avg (Tons)', 'drop_pct': '% Drop', 'drop_value': 'Drop (Tons)'
+        if analyzer.aggregated_df is None:
+            return jsonify({'success': False, 'message': 'Data must be aggregated before identifying risk.'}), 400
+            
+        body = request.get_json()
+        print(f"[DEBUG] Request body: {body}")
+        
+        # Validar y convertir parámetros
+        threshold_pct = body.get('thresholdPct')
+        threshold_value = body.get('thresholdValue')
+        
+        # Convertir a float si es string, manejar valores None o vacíos
+        try:
+            threshold_pct = float(threshold_pct) if threshold_pct not in [None, '', 0] else None
+        except (ValueError, TypeError):
+            threshold_pct = None
+            
+        try:
+            threshold_value = float(threshold_value) if threshold_value not in [None, '', 0] else None
+        except (ValueError, TypeError):
+            threshold_value = None
+        
+        print(f"[DEBUG] Risk analysis parameters - Percentage: {threshold_pct}, Value: {threshold_value}")
+        print(f"[DEBUG] Aggregated data shape: {analyzer.aggregated_df.shape}")
+        print(f"[DEBUG] Customer column: {analyzer.customer_col}")
+        
+        df_risk = analyzer.identify_at_risk_customers(
+            threshold_pct=threshold_pct,
+            threshold_value=threshold_value
+        )
+        
+        print(f"[DEBUG] Risk customers found: {len(df_risk)}")
+        
+        if not df_risk.empty:
+            # Preparar datos para el frontend
+            display_cols = {
+                analyzer.customer_col: 'Client', 
+                'period': 'Last Period', 
+                'total_tons': 'Last Purchase (Tons)',
+                'avg_last_3_tons': 'Previous Avg (Tons)', 
+                'drop_pct': '% Drop', 
+                'drop_value': 'Drop (Tons)'
+            }
+            
+            # Convertir period a string para JSON serialization
+            df_risk = df_risk.copy()
+            df_risk['period'] = df_risk['period'].dt.strftime('%Y-%m-%d') if pd.api.types.is_datetime64_any_dtype(df_risk['period']) else df_risk['period'].astype(str)
+            
+            # Seleccionar y renombrar columnas
+            risk_data = df_risk[list(display_cols.keys())].rename(columns=display_cols).to_dict('records')
+            
+            result = {
+                'success': True, 
+                'data': risk_data, 
+                'customer_col': analyzer.customer_col,
+                'total_at_risk': len(risk_data),
+                'message': f'Found {len(risk_data)} customers at risk'
+            }
+            print(f"[DEBUG] Returning success result with {len(risk_data)} customers")
+            return jsonify(result)
+            
+        result = {
+            'success': True, 
+            'data': [], 
+            'total_at_risk': 0,
+            'message': 'No customers met the specified risk criteria.'
         }
-        df_risk['period'] = df_risk['period'].astype(str)
+        print(f"[DEBUG] No customers at risk found")
+        return jsonify(result)
         
-        # Seleccionar y renombrar columnas, luego convertir a lista de diccionarios
-        risk_data = df_risk[list(display_cols.keys())].rename(columns=display_cols).to_dict('records')
-        
-        return jsonify({'success': True, 'data': risk_data, 'customer_col': analyzer.customer_col})
-        
-    return jsonify({'success': True, 'data': [], 'message': 'No customers met the specified risk criteria.'})
+    except Exception as e:
+        print(f"[ERROR] Exception in identify_risk: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False, 
+            'message': f'Error processing risk analysis: {str(e)}'
+        }), 500
 
 @app.route('/api/predict-risk', methods=['POST'])
 def handle_predict_risk():
     """FR5: Entrena el modelo ML y predice la probabilidad de abandono."""
-    try_to_load_data_if_needed()
+    load_default_data_if_needed()
     if analyzer.aggregated_df is None:
         return jsonify({'success': False, 'message': 'Data must be aggregated before ML prediction.'}), 400
         
@@ -152,8 +223,7 @@ def handle_predict_risk():
     return jsonify(result)
 
 if __name__ == '__main__':
-    # Intentar cargar datos por defecto al iniciar el servidor para conveniencia
-    try_to_load_data_if_needed()
+    # No se intenta cargar datos por defecto aquí, la carga se realiza en los endpoints si es necesario.
     print("Starting Flask API server...")
     # Ejecutar en el puerto 5000
     app.run(debug=True, port=5000)
