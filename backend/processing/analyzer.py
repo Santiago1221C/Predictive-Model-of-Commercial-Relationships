@@ -105,15 +105,37 @@ class FunctionalRequirementsAnalyzer:
         )
         
     # FR5: Predicción de Abandono con ML (Delegado a ChurnPredictor)
-    def train_and_predict_churn_with_rf(self, test_size: float = 0.2) -> Dict:
-        if self.aggregated_df is None or not self.customer_col:
+    def train_and_predict_churn_with_rf(self, test_size: float = 0.2, granularity: str = 'M') -> Dict:
+        if self.aggregated_df is None:
             return {'success': False, 'message': "Error: You must aggregate data first."}
+        
+        if self.customer_col is None:
+            return {'success': False, 'message': "Customer column not identified, please check your data"}
             
         result = self.predictor.train_and_predict_churn_with_rf(
             aggregated_df=self.aggregated_df,
             customer_col=self.customer_col,
             test_size=test_size
         )
+
+        print(f"\n[INFO] Initiating ML prediction with {granularity} granularity...")
+
+        predictor = ChurnPredictor()
+
+        # Pasar la granularidad al modelo
+        result = predictor.train_and_predict_churn_with_rf(
+            aggregated_df=self.aggregated_df,
+            customer_col=self.customer_col,
+            test_size=0.2,
+            granularity=granularity
+        )
+
+        # Guardar referencia al predictor para uso posterior
+        if result['success']:
+            self.predictor = predictor
+            print(f"[SUCCESS] ML prediction completed with {result.get('granularity_name', 'unknown')} analysis")
+        
+        return result
         
         # === AÑADIR COMPROBACIÓN ADICIONAL ===
         if result.get('success') and not result.get('predictions'):

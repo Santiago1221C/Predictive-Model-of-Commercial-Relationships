@@ -11,6 +11,8 @@ import io
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from werkzeug.utils import secure_filename
+import json
+import numpy as np
 
 # Suprimir advertencias de sklearn/pandas para una consola más limpia
 warnings.filterwarnings('ignore')
@@ -217,27 +219,66 @@ def handle_identify_risk():
 
 @app.route('/api/predict-risk', methods=['POST'])
 def handle_predict_risk():
-    """FR5: Entrena el modelo ML y predice la probabilidad de abandono."""
+    """FR5: Entrena el modelo ML y predice la probabilidad de abandono con análisis automático."""
+    import numpy as np
+    import json
+    
     load_default_data_if_needed()
     if analyzer.aggregated_df is None:
         return jsonify({'success': False, 'message': 'Data must be aggregated before ML prediction.'}), 400
-        
-    result = analyzer.train_and_predict_churn_with_rf()
+    
+    # Obtener granularidad desde el request
+    body = request.get_json() or {}
+    granularity = body.get('granularity', 'M')
+    
+    # Validar granularidad
+    if granularity not in ['M', 'Q']:
+        return jsonify({'success': False, 'message': 'Invalid granularity. Use "M" for monthly or "Q" for quarterly.'}), 400
+    
+    print(f"[INFO] Iniciando predicción con granularidad: {granularity}")
+    result = analyzer.train_and_predict_churn_with_rf(granularity=granularity)
     
     if result['success']:
-        predictions_df = pd.DataFrame(result['predictions'])
-        predictions_df['churn_probability'] = predictions_df['churn_probability'].apply(lambda x: f"{x*100:.2f}%")
-        predictions_df['total_tons'] = predictions_df['total_tons'].round(2)
+        # Función para limpiar NaN/Inf recursivamente
+        def clean_data(obj):
+            if isinstance(obj, float):
+                if np.isnan(obj) or np.isinf(obj):
+                    return 0
+            elif isinstance(obj, dict):
+                return {k: clean_data(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [clean_data(item) for item in obj]
+            elif isinstance(obj, pd.DataFrame):
+                return clean_data(obj.fillna(0).replace([np.inf, -np.inf], 0).to_dict('records'))
+            return obj
         
-        # Agregar los datos formateados al resultado para el frontend
-        result['predictions_formatted'] = predictions_df.to_dict('records')
+        # Limpiar predictions
+        if 'predictions' in result:
+            predictions_df = pd.DataFrame(result['predictions'])
+            predictions_df = predictions_df.fillna(0).replace([np.inf, -np.inf], 0)
+            predictions_df['churn_probability_formatted'] = predictions_df['churn_probability'].apply(lambda x: f"{x*100:.2f}%")
+            predictions_df['total_tons'] = predictions_df['total_tons'].round(2)
+            result['predictions_formatted'] = predictions_df.to_dict('records')
         
-        # Formatear el reporte de evaluación para una tabla en el frontend
-        report_df = pd.DataFrame(result['evaluation']['report']).T.reset_index()
-        report_df.columns = ['Metric', 'Precision', 'Recall', 'F1-Score', 'Support']
-        result['evaluation_report'] = report_df.to_dict('records')
+        # Limpiar evaluation report
+        if 'evaluation' in result and 'report' in result['evaluation']:
+            report_df = pd.DataFrame(result['evaluation']['report']).T.reset_index()
+            report_df.columns = ['Metric', 'Precision', 'Recall', 'F1-Score', 'Support']
+            report_df = report_df.fillna(0).replace([np.inf, -np.inf], 0)
+            result['evaluation_report'] = report_df.to_dict('records')
         
-    return jsonify(result)
+        # Limpiar todo el resultado
+        result = clean_data(result)
+        
+        print(f"[SUCCESS] Análisis completado y limpiado")
+    
+    # Convertir a JSON string y luego de vuelta para asegurar validez
+    try:
+        json_str = json.dumps(result, allow_nan=False, default=str)
+        return Response(json_str, mimetype='application/json')
+    except ValueError as e:
+        print(f"[ERROR] JSON serialization error: {e}")
+        return jsonify({'success': False, 'message': f'Error serializing result: {str(e)}'}), 500
 
 @app.route('/api/flag-drops', methods=['POST'])
 def handle_flag_drops():
@@ -269,6 +310,28 @@ def download_flags():
 
     filename = f"flags_{datetime.now(ZoneInfo('America/Bogota')).strftime('%Y%m%d_%H%M%S')}.csv"
     return Response(csv_buffer.getvalue(), mimetype="text/csv", headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+@app.route('/api/get-analysis', methods=['GET'])
+def handle_get_analysis():
+    """Obtiene el último análisis generado sin re-entrenar el modelo."""
+    if not hasattr(analyzer, 'predictor') or analyzer.predictor is None:
+        return jsonify({
+            'success': False, 
+            'message': 'No analysis available. Please run prediction first.'
+        }), 400
+    
+    if not hasattr(analyzer.predictor, 'analyzer') or analyzer.predictor.analyzer is None:
+        return jsonify({
+            'success': False,
+            'message': 'Analysis not found. Please run prediction again.'
+        }), 400
+    
+    # Aquí podrías almacenar el último resultado en una variable de instancia
+    # Por ahora, indica que deben llamar al endpoint de predicción
+    return jsonify({
+        'success': False,
+        'message': 'Please call /api/predict-risk to generate fresh analysis.'
+    }), 400
 
 if __name__ == '__main__':
     # No se intenta cargar datos por defecto aquí, la carga se realiza en los endpoints si es necesario.
