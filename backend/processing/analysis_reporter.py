@@ -2,124 +2,146 @@
 
 import pandas as pd
 import numpy as np
-from typing import Optional
+from datetime import datetime
+import warnings
+
+warnings.filterwarnings('ignore')
 
 class AnalysisReporter:
-    """Maneja el informe de tendencias de clientes (FR3) y la identificación de clientes en riesgo (FR4)."""
-
-    # [Código de visualize_customer_trends() sin cambios]
-    def visualize_customer_trends(self, aggregated_df: pd.DataFrame, customer_col: str, customer_id: str, start_date_str: Optional[str] = None, end_date_str: Optional[str] = None) -> pd.DataFrame:
-        """FR3: Filtra los datos agregados para un cliente específico y un rango de fechas."""
-        print(f"Getting trend data for customer {customer_id}...")
-
-        if aggregated_df.empty:
-            return pd.DataFrame()
-
-        customer_data = aggregated_df[aggregated_df[customer_col] == customer_id].copy()
-
-        if customer_data.empty:
-            return pd.DataFrame()
-
-        # Convertir la columna de período a datetime para facilitar el filtrado
-        customer_data['period_dt'] = pd.to_datetime(customer_data['period'])
+    """Clase para generar reportes de análisis de riesgo."""
+    
+    def __init__(self):
+        pass
+    
+    def identify_at_risk_customers(self, aggregated_df, customer_col, threshold_pct=None, threshold_value=None):
+        """
+        Identifica clientes en riesgo basado en caída de compras.
+        Retorna los 10 clientes con mayor riesgo.
         
+        Args:
+            aggregated_df (DataFrame): Datos agregados por período
+            customer_col (str): Columna de cliente
+            threshold_pct (float): Umbral de porcentaje de caída
+            threshold_value (float): Umbral de valor absoluto de caída
+            
+        Returns:
+            dict: Lista de los 10 clientes en mayor riesgo
+        """
         try:
-            if start_date_str:
-                start_date = pd.to_datetime(start_date_str)
-                customer_data = customer_data[customer_data['period_dt'] >= start_date]
-            if end_date_str:
-                end_date = pd.to_datetime(end_date_str)
-                customer_data = customer_data[customer_data['period_dt'] <= end_date]
-        except ValueError:
-            print("Warning: Invalid date format. Date filter will be ignored.")
-
-        if customer_data.empty:
-            return pd.DataFrame()
-
-        return customer_data.sort_values('period_dt')
-    # -------------------------------------------------------------------------------------
-
-    def identify_at_risk_customers(self, aggregated_df: pd.DataFrame, customer_col: str, threshold_pct: Optional[float] = None, threshold_value: Optional[float] = None) -> pd.DataFrame:
-        """FR4: Identifica clientes en riesgo basándose en una caída respecto a su promedio de los últimos 3 períodos."""
-        print(f"Identifying at-risk customers with thresholds - Percentage: {threshold_pct}%, Value: {threshold_value}")
-        
-        if aggregated_df.empty:
-            print("No aggregated data available")
-            return pd.DataFrame()
+            print(f"Identifying at-risk customers with thresholds - Percentage: {threshold_pct}%, Value: {threshold_value}")
             
-        # Verificar que existan las columnas necesarias
-        required_cols = [customer_col, 'period', 'total_tons']
-        if not all(col in aggregated_df.columns for col in required_cols):
-            print(f"Missing required columns. Available: {list(aggregated_df.columns)}")
-            return pd.DataFrame()
+            # Ordenar datos por cliente y período
+            df_sorted = aggregated_df.sort_values([customer_col, 'period_dt'])
             
-        df_risk = aggregated_df.copy().sort_values([customer_col, 'period'])
-        
-        # Asegurar que period sea datetime para ordenamiento correcto
-        if not pd.api.types.is_datetime64_any_dtype(df_risk['period']):
-            df_risk['period'] = pd.to_datetime(df_risk['period'])
-        
-        # Calcular promedio móvil de 3 períodos (excluyendo el período actual)
-        df_risk['avg_last_3_tons'] = df_risk.groupby(customer_col)['total_tons'].transform(
-            lambda x: x.shift(1).rolling(window=3, min_periods=1).mean()
-        )
-        
-        # Obtener el último período de compra para cada cliente
-        latest_purchases = df_risk.loc[df_risk.groupby(customer_col)['period'].idxmax()].copy()
-        
-        print(f"Total customers found: {len(latest_purchases)}")
-        
-        # Filtrar clientes que tienen datos históricos válidos
-        # Un cliente necesita al menos 2 períodos para tener un promedio anterior
-        customers_with_history = df_risk.groupby(customer_col).size() >= 2
-        valid_customers = customers_with_history[customers_with_history].index
-        
-        latest_purchases = latest_purchases[
-            latest_purchases[customer_col].isin(valid_customers) & 
-            latest_purchases['avg_last_3_tons'].notna() & 
-            (latest_purchases['avg_last_3_tons'] > 0)
-        ]
-        
-        if latest_purchases.empty:
-            print("No customers with sufficient history found")
-            return pd.DataFrame()
-        
-        print(f"Customers with valid history: {len(latest_purchases)}")
-        
-        # Calcular métricas de caída
-        latest_purchases['drop_value'] = latest_purchases['avg_last_3_tons'] - latest_purchases['total_tons']
-        latest_purchases['drop_pct'] = (latest_purchases['drop_value'] / latest_purchases['avg_last_3_tons']) * 100
-        
-        # Redondear valores para mejor presentación
-        latest_purchases['avg_last_3_tons'] = latest_purchases['avg_last_3_tons'].round(2)
-        latest_purchases['drop_pct'] = latest_purchases['drop_pct'].round(2)
-        latest_purchases['drop_value'] = latest_purchases['drop_value'].round(2)
-        
-        # Aplicar filtros de riesgo
-        df_filtered = latest_purchases.copy()
-        
-        # Solo considerar clientes con caída positiva (compra actual menor al promedio)
-        df_filtered = df_filtered[df_filtered['drop_value'] > 0]
-        
-        if df_filtered.empty:
-            print("No customers showing decline in purchases")
-            return pd.DataFrame()
-        
-        # Aplicar umbrales si se proporcionan
-        if threshold_pct is not None and threshold_pct > 0:
-            df_filtered = df_filtered[df_filtered['drop_pct'] >= threshold_pct]
-            print(f"After percentage filter ({threshold_pct}%): {len(df_filtered)} customers")
+            # Obtener los últimos 2 períodos para cada cliente para calcular caída
+            customer_latest = df_sorted.groupby(customer_col).tail(2)
             
-        if threshold_value is not None and threshold_value > 0:
-            df_filtered = df_filtered[df_filtered['drop_value'] >= threshold_value]
-            print(f"After value filter ({threshold_value}): {len(df_filtered)} customers")
-        
-        # Si no hay umbrales específicos, usar valores por defecto razonables
-        if (threshold_pct is None or threshold_pct <= 0) and (threshold_value is None or threshold_value <= 0):
-            # Por defecto: caída de al menos 10% o 1 tonelada
-            df_filtered = df_filtered[
-                (df_filtered['drop_pct'] >= 10) | (df_filtered['drop_value'] >= 1.0)
-            ]
-            print(f"Using default thresholds (10% or 1 ton): {len(df_filtered)} customers")
-        
-        return df_filtered.sort_values('drop_pct', ascending=False)
+            # Calcular caídas para cada cliente
+            risk_analysis = []
+            
+            for customer in df_sorted[customer_col].unique():
+                customer_data = df_sorted[df_sorted[customer_col] == customer].sort_values('period_dt')
+                
+                if len(customer_data) < 2:
+                    continue  # Necesitamos al menos 2 períodos
+                
+                # Obtener último y penúltimo período
+                latest = customer_data.iloc[-1]
+                previous = customer_data.iloc[-2]
+                
+                # Calcular promedios históricos (excluyendo último período)
+                historical_data = customer_data.iloc[:-1]
+                historical_avg = historical_data['total_quantity'].mean()
+                
+                if historical_avg <= 0:
+                    continue
+                
+                # Calcular métricas de riesgo
+                current_quantity = latest['total_quantity']
+                quantity_drop = historical_avg - current_quantity
+                drop_percentage = (quantity_drop / historical_avg) * 100
+                
+                # Calcular tendencia (correlación con tiempo)
+                if len(customer_data) > 2:
+                    x = np.arange(len(customer_data))
+                    y = customer_data['total_quantity'].values
+                    trend = np.corrcoef(x, y)[0, 1] if len(set(y)) > 1 else 0
+                else:
+                    trend = 0
+                
+                risk_analysis.append({
+                    'customer': customer,
+                    'current_quantity': current_quantity,
+                    'historical_avg': historical_avg,
+                    'quantity_drop': quantity_drop,
+                    'drop_percentage': drop_percentage,
+                    'trend': trend,
+                    'last_period': str(latest['period_dt']),
+                    'periods_count': len(customer_data)
+                })
+            
+            if len(risk_analysis) == 0:
+                return {'success': True, 'data': []}
+            
+            # Convertir a DataFrame para facilitar filtrado
+            risk_df = pd.DataFrame(risk_analysis)
+            
+            # Aplicar filtros basados en umbrales
+            at_risk_customers = risk_df.copy()
+            
+            if threshold_pct is not None:
+                at_risk_customers = at_risk_customers[at_risk_customers['drop_percentage'] >= threshold_pct]
+                print(f"After percentage filter ({threshold_pct}%): {len(at_risk_customers)} customers")
+            
+            if threshold_value is not None:
+                at_risk_customers = at_risk_customers[at_risk_customers['quantity_drop'] >= threshold_value]
+                print(f"After value filter ({threshold_value}): {len(at_risk_customers)} customers")
+            
+            # Si no se especificaron umbrales, usar valores por defecto
+            if threshold_pct is None and threshold_value is None:
+                # Usar 10% de caída o tendencia negativa como umbrales por defecto
+                at_risk_customers = at_risk_customers[
+                    (at_risk_customers['drop_percentage'] >= 10) | 
+                    (at_risk_customers['trend'] <= -0.3)
+                ]
+                print(f"Using default thresholds (10% drop or negative trend): {len(at_risk_customers)} customers")
+            
+            # Ordenar por mayor riesgo y tomar top 10
+            at_risk_customers['risk_score'] = (
+                at_risk_customers['drop_percentage'] * 0.6 + 
+                abs(at_risk_customers['trend']) * 100 * 0.4
+            )
+            
+            at_risk_customers = at_risk_customers.sort_values('risk_score', ascending=False).head(10)
+            
+            # Preparar datos de salida
+            risk_data = []
+            for _, row in at_risk_customers.iterrows():
+                risk_data.append({
+                    'Client': row['customer'],
+                    'Last Period': row['last_period'],
+                    'Current (Tons)': round(row['current_quantity'] / 1000, 2),
+                    'Historical Avg (Tons)': round(row['historical_avg'] / 1000, 2),
+                    'Drop (%)': round(row['drop_percentage'], 2),
+                    'Drop (Tons)': round(row['quantity_drop'] / 1000, 2),
+                    'Trend': round(row['trend'], 3),
+                    'Risk Score': round(row['risk_score'], 2)
+                })
+            
+            print(f"Returning top 10 at-risk customers out of {len(risk_df)} analyzed")
+            
+            return {
+                'success': True,
+                'data': risk_data,
+                'total_at_risk': len(risk_data),
+                'analysis_summary': {
+                    'total_customers_analyzed': len(risk_df),
+                    'customers_at_risk': len(risk_data),
+                    'risk_percentage': round((len(at_risk_customers) / len(risk_df)) * 100, 2) if len(risk_df) > 0 else 0
+                }
+            }
+            
+        except Exception as e:
+            error_msg = f'Error en análisis de riesgo: {str(e)}'
+            print(f"❌ {error_msg}")
+            return {'success': False, 'message': error_msg}
