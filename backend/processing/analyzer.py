@@ -11,7 +11,7 @@ try:
     from .analysis_reporter import AnalysisReporter
     from ..models.ml_model import ChurnPredictor
     from .flag_reporter import FlagReporter
-    
+
 except ImportError:
     # Si fallan, intentar imports absolutos con sys.path
     import sys
@@ -24,16 +24,17 @@ except ImportError:
     from models.ml_model import ChurnPredictor
     from processing.flag_reporter import FlagReporter
 
+
 class FunctionalRequirementsAnalyzer:
     """
     Clase principal orquestadora (Façade/SRP). Gestiona el flujo de datos
     y delega tareas específicas a módulos especializados:
     - data.DataLoader: Carga de datos
     - data.DataAggregator: Agregación por período
-    - processing.AnalysisReporter: Análisis de tendencias y reglas de riesgo (umbral)
-    - models.ml_model: Modelo de Machine Learning para predicción de abandono
+    - processing.AnalysisReporter: Análisis de tendencias y reglas de riesgo
+    - models.ml_model: Modelo de Machine Learning (predicción de abandono)
     """
-    
+
     def __init__(self, csv_file: Optional[str] = None):
         # Estado principal de los datos
         self.df: Optional[pd.DataFrame] = None
@@ -52,7 +53,9 @@ class FunctionalRequirementsAnalyzer:
         if csv_file:
             self.upload_historical_data(csv_file)
 
-    # FR1: Carga de Datos Históricos (Delegado a DataLoader)
+    # ======================================================================
+    # FR1: Carga de Datos Históricos
+    # ======================================================================
     def upload_historical_data(self, file_path: str) -> Dict[str, any]:
         result = self.loader.upload_historical_data(file_path)
         if result['success']:
@@ -61,8 +64,12 @@ class FunctionalRequirementsAnalyzer:
             self.customer_col = self.loader.customer_col
         return result
 
-    # FR2: Agregación de Compras (Delegado a DataAggregator)
-    def aggregate_purchases_by_customer_and_period(self, period: str = 'month', custom_period: Optional[str] = None) -> Dict[str, any]:
+    # ======================================================================
+    # FR2: Agregación de Compras por Cliente y Período
+    # ======================================================================
+    def aggregate_purchases_by_customer_and_period(
+        self, period: str = 'month', custom_period: Optional[str] = None
+    ) -> Dict[str, any]:
         if self.df is None or not self.customer_col:
             return {'success': False, 'message': "Error: Data not loaded or columns not detected."}
             
@@ -81,8 +88,12 @@ class FunctionalRequirementsAnalyzer:
             self.aggregated_df = result['aggregated_data']
         return result
 
-    # FR3: Visualización de Tendencias (Delegado a AnalysisReporter)
-    def visualize_customer_trends(self, customer_id: str, start_date_str: Optional[str] = None, end_date_str: Optional[str] = None) -> pd.DataFrame:
+    # ======================================================================
+    # FR3: Visualización de Tendencias
+    # ======================================================================
+    def visualize_customer_trends(
+        self, customer_id: str, start_date_str: Optional[str] = None, end_date_str: Optional[str] = None
+    ) -> pd.DataFrame:
         if self.aggregated_df is None or not self.customer_col:
             return pd.DataFrame()
         return self.reporter.visualize_customer_trends(
@@ -93,8 +104,12 @@ class FunctionalRequirementsAnalyzer:
             end_date_str=end_date_str
         )
 
-    # FR4: Identificación de Riesgo por Regla (Delegado a AnalysisReporter)
-    def identify_at_risk_customers(self, threshold_pct: Optional[float] = None, threshold_value: Optional[float] = None) -> pd.DataFrame:
+    # ======================================================================
+    # FR4: Identificación de Clientes en Riesgo por Regla
+    # ======================================================================
+    def identify_at_risk_customers(
+        self, threshold_pct: Optional[float] = None, threshold_value: Optional[float] = None
+    ) -> pd.DataFrame:
         if self.aggregated_df is None or not self.customer_col:
             return pd.DataFrame()
         return self.reporter.identify_at_risk_customers(
@@ -103,49 +118,74 @@ class FunctionalRequirementsAnalyzer:
             threshold_pct=threshold_pct,
             threshold_value=threshold_value
         )
-        
-    # FR5: Predicción de Abandono con ML (Delegado a ChurnPredictor)
+
+    # ======================================================================
+    # FR5: Predicción de Abandono con ML (Random Forest)
+    # ======================================================================
     def train_and_predict_churn_with_rf(self, test_size: float = 0.2, granularity: str = 'M') -> Dict:
+        """
+        FR5: Entrena el modelo de Machine Learning (Random Forest)
+        y predice clientes con riesgo de abandono.
+        """
+        print("\n" + "="*80)
+        print("FR5: MODELO ROBUSTO Y ADAPTATIVO - Análisis", granularity)
+        print("="*80)
+
+        # --- Validaciones previas ---
         if self.aggregated_df is None:
-            return {'success': False, 'message': "Error: You must aggregate data first."}
-        
+            return {'success': False, 'message': "❌ Error: You must aggregate data first."}
+
         if self.customer_col is None:
-            return {'success': False, 'message': "Customer column not identified, please check your data"}
-            
+            return {'success': False, 'message': "❌ Customer column not identified, please check your data."}
+
+        df = self.aggregated_df.copy()
+
+        # --- Diagnóstico previo al modelo ---
+        print("\n🔍 VALIDACIÓN DE DATOS DE ENTRADA AL MODELO")
+        print(f"   Total de registros: {len(df):,}")
+        print(f"   Clientes únicos: {df[self.customer_col].nunique() if self.customer_col in df.columns else 'N/A'}")
+        print(f"   Columnas disponibles: {df.columns.tolist()}")
+
+        if 'total_tons' in df.columns:
+            print(f"   Suma total de ventas (total_tons): {df['total_tons'].sum():,.2f}")
+            print(f"   Porcentaje de registros con 0 ventas: {(df['total_tons'] == 0).mean() * 100:.2f}%")
+        else:
+            posibles = [c for c in df.columns if 'ton' in c.lower() or 'venta' in c.lower() or 'kg' in c.lower()]
+            return {
+                'success': False,
+                'message': f"❌ La columna 'total_tons' no existe en los datos agregados. Posibles columnas: {posibles}"
+            }
+
+        # --- Validar si los datos tienen información útil ---
+        if df['total_tons'].sum() == 0:
+            return {
+                'success': False,
+                'message': "🚨 ERROR CRÍTICO: El dataset contiene 100% de registros sin ventas. Verifica la preparación de datos."
+            }
+
+        # --- Entrenamiento del modelo ---
+        print("\n[INFO] Entrenando modelo de predicción de abandono...")
         result = self.predictor.train_and_predict_churn_with_rf(
-            aggregated_df=self.aggregated_df,
+            aggregated_df=df,
             customer_col=self.customer_col,
-            test_size=test_size
-        )
-
-        print(f"\n[INFO] Initiating ML prediction with {granularity} granularity...")
-
-        predictor = ChurnPredictor()
-
-        # Pasar la granularidad al modelo
-        result = predictor.train_and_predict_churn_with_rf(
-            aggregated_df=self.aggregated_df,
-            customer_col=self.customer_col,
-            test_size=0.2,
+            test_size=test_size,
             granularity=granularity
         )
 
-        # Guardar referencia al predictor para uso posterior
-        if result['success']:
-            self.predictor = predictor
-            print(f"[SUCCESS] ML prediction completed with {result.get('granularity_name', 'unknown')} analysis")
-        
-        return result
-        
-        # === AÑADIR COMPROBACIÓN ADICIONAL ===
-        if result.get('success') and not result.get('predictions'):
-            # Si 'success' es True pero 'predictions' está vacío (o no existe)
-            return {'success': False, 'message': "ML Model trained successfully, but no predictions were generated (predictions list is empty). Check data format."}
-        # ====================================
+        # --- Resultados ---
+        if result.get('success'):
+            print(f"[SUCCESS] Modelo entrenado correctamente con granularidad {granularity}")
+        else:
+            print(f"[ERROR] Falló el entrenamiento: {result.get('message')}")
 
         return result
-        
-    def flag_significant_drops(self, drop_pct_threshold: float = 30.0, drop_value_threshold: float = 5.0) -> pd.DataFrame:
+
+    # ======================================================================
+    # FR6: Señalamiento de Caídas Significativas
+    # ======================================================================
+    def flag_significant_drops(
+        self, drop_pct_threshold: float = 30.0, drop_value_threshold: float = 5.0
+    ) -> pd.DataFrame:
         if self.aggregated_df is None or not self.customer_col:
             return pd.DataFrame()
         return self.flagger.flag_significant_drops(
@@ -154,4 +194,3 @@ class FunctionalRequirementsAnalyzer:
             drop_pct_threshold=drop_pct_threshold,
             drop_value_threshold=drop_value_threshold
         )
-

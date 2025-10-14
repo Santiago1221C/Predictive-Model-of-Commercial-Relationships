@@ -185,10 +185,10 @@ export default function ChurnPrediction() {
             </div>
         )}
 
-        {/* Results */}
         {result && result.success && (
-            <AnalysisResults data={result} />
+            <AnalysisResults analysis={result.analysis} />
         )}
+
 
         {/* Instructions */}
         {!result && !loading && !error && (
