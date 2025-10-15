@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Database, GitCommit, BarChartHorizontal, Search, Brain, Loader2, Upload, TrendingUp, AlertTriangle, Target, FileText, Flag, Download, Users } from 'lucide-react';
+import { Database, GitCommit, BarChartHorizontal, Search, Brain, Loader2, Upload, TrendingUp, AlertTriangle, Target, FileText, Flag, Download, Users, Calendar } from 'lucide-react';
 
 export default function Dashboard() {
     const [loading, setLoading] = useState(false);
@@ -138,76 +138,127 @@ export default function Dashboard() {
             await loadCustomers();
         }
 
-        // Crear una modal para ingresar cliente manualmente
-        const customerSelection = await showCustomerInputModal();
-        if (!customerSelection) return;
+        // Crear una modal para ingresar cliente y fechas
+        const visualizationParams = await showVisualizationModal();
+        if (!visualizationParams) return;
 
-        const chartType = prompt("Choose chart type ('line' or 'bar'):", 'line') || 'line';
         const result = await callApi('/api/visualize', { 
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
             body: JSON.stringify({ 
-                chart_type: chartType,
-                customer_id: customerSelection 
+                chart_type: visualizationParams.chartType,
+                customer_id: visualizationParams.customerId,
+                start_date: visualizationParams.startDate,
+                end_date: visualizationParams.endDate
             }) 
         }, 'Visualization failed');
         
         if (result && result.success) {
             setTrendsData({ 
                 data: result.data, 
-                type: chartType, 
-                customer: customerSelection 
+                type: visualizationParams.chartType, 
+                customer: visualizationParams.customerId,
+                startDate: visualizationParams.startDate,
+                endDate: visualizationParams.endDate
             });
             setActiveSection('visualize');
         }
     };
 
-    const showCustomerInputModal = () => {
+    const showVisualizationModal = () => {
         return new Promise((resolve) => {
             const modal = document.createElement('div');
             modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
             
             const content = document.createElement('div');
-            content.className = 'bg-white p-6 rounded-lg max-w-lg w-full mx-4';
+            content.className = 'bg-white p-6 rounded-lg max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto';
             
             // Generar algunos ejemplos de clientes
             const exampleCustomers = availableCustomers.slice(0, 5);
             
             content.innerHTML = `
-                <h3 class="text-lg font-bold mb-4 text-gray-800">Ingresar ID del Cliente</h3>
+                <h3 class="text-lg font-bold mb-4 text-gray-800">Configurar Visualización de Tendencias</h3>
                 
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">
-                        ID del Cliente:
-                    </label>
-                    <input 
-                        type="text" 
-                        id="customerInput" 
-                        placeholder="Ingrese el ID del cliente (ej: Cliente_001)" 
-                        class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                </div>
-                
-                <div class="mb-4 p-4 bg-gray-50 rounded-lg">
-                    <p class="text-sm font-medium text-gray-700 mb-2">Ejemplos de clientes disponibles:</p>
-                    <div class="flex flex-wrap gap-2">
-                        ${exampleCustomers.map(customer => 
-                            `<button class="example-btn px-3 py-1 bg-blue-100 text-blue-800 text-xs rounded-full hover:bg-blue-200 transition-colors" data-customer="${customer}">
-                                ${customer}
-                            </button>`
-                        ).join('')}
+                <div class="space-y-4">
+                    <!-- Cliente -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            ID del Cliente:
+                        </label>
+                        <input 
+                            type="text" 
+                            id="customerInput" 
+                            placeholder="Ingrese el ID del cliente (ej: Cliente_001)" 
+                            class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                        <div class="mt-2 p-3 bg-gray-50 rounded-lg">
+                            <p class="text-sm font-medium text-gray-700 mb-2">Ejemplos de clientes disponibles:</p>
+                            <div class="flex flex-wrap gap-2">
+                                ${exampleCustomers.map(customer => 
+                                    `<button class="example-btn px-3 py-1 bg-blue-100 text-blue-800 text-xs rounded-full hover:bg-blue-200 transition-colors" data-customer="${customer}">
+                                        ${customer}
+                                    </button>`
+                                ).join('')}
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2">
+                                Total de ${availableCustomers.length} clientes disponibles
+                            </p>
+                        </div>
                     </div>
-                    <p class="text-xs text-gray-500 mt-2">
-                        Total de ${availableCustomers.length} clientes disponibles
-                    </p>
+                    
+                    <!-- Tipo de Gráfico -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Tipo de Gráfico:
+                        </label>
+                        <select 
+                            id="chartTypeSelect" 
+                            class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                            <option value="line">Línea</option>
+                            <option value="bar">Barras</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Filtro de Fechas -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <Calendar class="inline w-4 h-4 mr-1" />
+                                Fecha Inicial (opcional):
+                            </label>
+                            <input 
+                                type="date" 
+                                id="startDateInput" 
+                                class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <Calendar class="inline w-4 h-4 mr-1" />
+                                Fecha Final (opcional):
+                            </label>
+                            <input 
+                                type="date" 
+                                id="endDateInput" 
+                                class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                        </div>
+                    </div>
+                    
+                    <div class="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <p class="text-xs text-blue-800">
+                            <strong>Nota:</strong> Si no especifica fechas, se mostrarán todos los datos disponibles.
+                        </p>
+                    </div>
                 </div>
                 
-                <div class="flex space-x-3">
+                <div class="flex space-x-3 mt-6">
                     <button 
                         id="confirmBtn" 
                         class="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium"
                     >
-                        Confirmar
+                        Visualizar
                     </button>
                     <button 
                         id="cancelBtn" 
@@ -222,6 +273,9 @@ export default function Dashboard() {
             document.body.appendChild(modal);
             
             const customerInput = content.querySelector('#customerInput');
+            const chartTypeSelect = content.querySelector('#chartTypeSelect');
+            const startDateInput = content.querySelector('#startDateInput');
+            const endDateInput = content.querySelector('#endDateInput');
             const confirmBtn = content.querySelector('#confirmBtn');
             const cancelBtn = content.querySelector('#cancelBtn');
             
@@ -237,7 +291,7 @@ export default function Dashboard() {
             });
             
             // Función para confirmar
-            const confirmCustomer = () => {
+            const confirmVisualization = () => {
                 const customerValue = customerInput.value.trim();
                 if (!customerValue) {
                     alert('Por favor ingrese un ID de cliente');
@@ -245,12 +299,17 @@ export default function Dashboard() {
                     return;
                 }
                 
-                resolve(customerValue);
+                resolve({
+                    customerId: customerValue,
+                    chartType: chartTypeSelect.value,
+                    startDate: startDateInput.value || null,
+                    endDate: endDateInput.value || null
+                });
                 document.body.removeChild(modal);
             };
             
             // Event listeners
-            confirmBtn.addEventListener('click', confirmCustomer);
+            confirmBtn.addEventListener('click', confirmVisualization);
             
             cancelBtn.addEventListener('click', () => {
                 resolve(null);
@@ -260,7 +319,7 @@ export default function Dashboard() {
             // Permitir Enter para confirmar
             customerInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
-                    confirmCustomer();
+                    confirmVisualization();
                 }
             });
             
@@ -474,10 +533,20 @@ export default function Dashboard() {
 
                     {activeSection === 'visualize' && trendsData.data && (
                         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                            <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
-                                <TrendingUp className="mr-3 text-[#00657F]" size={24} />
-                                Tendencias del Cliente: {trendsData.customer}
-                            </h3>
+                            <div className="flex justify-between items-start mb-6">
+                                <div>
+                                    <h3 className="text-xl font-bold text-gray-800 flex items-center">
+                                        <TrendingUp className="mr-3 text-[#00657F]" size={24} />
+                                        Tendencias del Cliente: {trendsData.customer}
+                                    </h3>
+                                    {(trendsData.startDate || trendsData.endDate) && (
+                                        <p className="text-sm text-gray-600 mt-2 flex items-center">
+                                            <Calendar className="w-4 h-4 mr-2" />
+                                            Período: {trendsData.startDate || 'Inicio'} → {trendsData.endDate || 'Fin'}
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
                             <div className="h-96">
                                 <ResponsiveContainer width="100%" height="100%">
                                     {trendsData.type === 'bar' ? (
