@@ -6,23 +6,25 @@ import { Database, GitCommit, BarChartHorizontal, Search, Brain, Loader2, Upload
 
 export default function Dashboard() {
     const [loading, setLoading] = useState(false);
-    const [activeSection, setActiveSection] = useState(null);
+    const [activeSection, setActiveSection] = useState<string | null>(null);
     const [step, setStep] = useState(0);
 
-    const [uploadResult, setUploadResult] = useState(null);
+    const [uploadResult, setUploadResult] = useState<{
+        totalRows: number;
+        totalColumns: number;
+        source: string;
+    } | null>(null);
     const [aggResult, setAggResult] = useState('');
-    const [trendsData, setTrendsData] = useState([]);
-    const [riskData, setRiskData] = useState([]);
-    const [predictionData, setPredictionData] = useState(null);
-    const [flaggedData, setFlaggedData] = useState([]);
-    const [availableCustomers, setAvailableCustomers] = useState([]);
+    const [predictionData, setPredictionData] = useState<any>(null);
+    const [trendsData, setTrendsData] = useState<any>(null);
+    const [riskData, setRiskData] = useState<any[]>([]);
+    const [flaggedData, setFlaggedData] = useState<any[]>([]);
 
-    // Verificar si hay datos cargados al iniciar
-    useEffect(() => {
-        checkDefaultData();
-    }, []);
+    const [availableCustomers, setAvailableCustomers] = useState<string[]>([]);
+    const [selectedCenter, setSelectedCenter] = useState<string>('TODOS'); 
+    const [searchTerm, setSearchTerm] = useState<string>(''); 
 
-    const callApi = async (endpoint, options, errorMsg) => {
+    const callApi = async (endpoint: string, options: RequestInit, errorMsg: string): Promise<any> => {
         setLoading(true);
         try {
             const response = await fetch(`http://localhost:5000${endpoint}`, options);
@@ -31,7 +33,8 @@ export default function Dashboard() {
             return data;
         } catch (error) {
             console.error(errorMsg, error);
-            alert(`${errorMsg}: ${error.message}`);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            alert(`${errorMsg}: ${errorMessage}`);
             return null;
         } finally {
             setLoading(false);
@@ -41,25 +44,40 @@ export default function Dashboard() {
     const checkDefaultData = async () => {
         try {
             // Intentar cargar datos por defecto del archivo ventas_anonimizadas.csv
-            const result = await callApi('/api/upload', { 
-                method: 'POST', 
+            const result = await callApi('/api/upload', {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ use_default: true })
             }, 'Error loading default data');
-            
+
             if (result && result.success) {
-                setUploadResult({ 
-                    totalRows: result.total_rows, 
+                setUploadResult({
+                    totalRows: result.total_rows,
                     totalColumns: result.total_columns,
                     source: 'ventas_anonimizadas.csv (predeterminado)'
                 });
                 setAvailableCustomers(result.customers || []);
                 setStep(1);
             }
-        } catch (error) {
-            console.log('No se pudieron cargar los datos predeterminados');
+        } catch (error: unknown) {
+            console.log('No se pudieron cargar los datos predeterminados', error);
         }
     };
+
+    // Verificar si hay datos cargados al iniciar
+    useEffect(() => {
+        const loadData = async () => {
+            try {
+                await checkDefaultData();
+            } catch (error) {
+                console.error('Error in useEffect:', error);
+            }
+        };
+
+        loadData();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+
 
     const loadCustomers = async () => {
         const result = await callApi('/api/customers', { method: 'GET' }, 'Error loading customers');
@@ -69,24 +87,21 @@ export default function Dashboard() {
     };
 
     const handleUpload = async () => {
-        // Mostrar opción de usar archivo predeterminado o subir nuevo
-        const useDefault = confirm(
-            "¿Desea usar el archivo predeterminado 'ventas_anonimizadas.csv'?\n\n" +
-            "Presione 'Aceptar' para usar el archivo predeterminado\n" +
-            "Presione 'Cancelar' para subir un archivo personalizado"
-        );
+        const useDefault = await showUploadModal();
+
+        if (useDefault === null) return; // User cancelled
 
         if (useDefault) {
             // Usar archivo predeterminado
-            const result = await callApi('/api/upload', { 
-                method: 'POST', 
+            const result = await callApi('/api/upload', {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ use_default: true })
             }, 'Error loading default data');
-            
+
             if (result && result.success) {
-                setUploadResult({ 
-                    totalRows: result.total_rows, 
+                setUploadResult({
+                    totalRows: result.total_rows,
                     totalColumns: result.total_columns,
                     source: 'ventas_anonimizadas.csv (predeterminado)'
                 });
@@ -102,14 +117,14 @@ export default function Dashboard() {
             input.onchange = async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
-                
+
                 const formData = new FormData();
                 formData.append('file', file);
-                
+
                 const result = await callApi('/api/upload', { method: 'POST', body: formData }, 'Upload failed');
                 if (result && result.success) {
-                    setUploadResult({ 
-                        totalRows: result.total_rows, 
+                    setUploadResult({
+                        totalRows: result.total_rows,
                         totalColumns: result.total_columns,
                         source: file.name
                     });
@@ -122,14 +137,173 @@ export default function Dashboard() {
         }
     };
 
+    const showUploadModal = () => {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+
+            const content = document.createElement('div');
+            content.className = 'bg-white p-6 rounded-lg max-w-md w-full mx-4';
+
+            content.innerHTML = `
+                <h3 class="text-lg font-bold mb-4 text-gray-800">Cargar Datos</h3>
+                
+                <p class="text-sm text-gray-600 mb-6">
+                    Seleccione cómo desea cargar los datos de ventas:
+                </p>
+                
+                <div class="space-y-3">
+                    <button 
+                        id="defaultBtn" 
+                        class="w-full bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium text-left flex items-center justify-between group"
+                    >
+                        <div>
+                            <div class="font-semibold">Usar archivo predeterminado</div>
+                            <div class="text-sm text-blue-100">ventas_anonimizadas.csv</div>
+                        </div>
+                        <svg class="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </button>
+                    
+                    <button 
+                        id="customBtn" 
+                        class="w-full bg-gray-100 text-gray-800 px-4 py-3 rounded-lg hover:bg-gray-200 transition-colors font-medium text-left flex items-center justify-between group"
+                    >
+                        <div>
+                            <div class="font-semibold">Subir archivo personalizado</div>
+                            <div class="text-sm text-gray-600">Seleccionar archivo CSV</div>
+                        </div>
+                        <svg class="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </button>
+                </div>
+                
+                <button 
+                    id="cancelBtn" 
+                    class="w-full mt-4 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+                >
+                    Cancelar
+                </button>
+            `;
+
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+
+            const defaultBtn = content.querySelector('#defaultBtn') as HTMLButtonElement;
+            const customBtn = content.querySelector('#customBtn') as HTMLButtonElement;
+            const cancelBtn = content.querySelector('#cancelBtn') as HTMLButtonElement;
+
+            defaultBtn.addEventListener('click', () => {
+                resolve(true);
+                document.body.removeChild(modal);
+            });
+
+            customBtn.addEventListener('click', () => {
+                resolve(false);
+                document.body.removeChild(modal);
+            });
+
+            cancelBtn.addEventListener('click', () => {
+                resolve(null);
+                document.body.removeChild(modal);
+            });
+
+            modal.addEventListener('keydown', (e: KeyboardEvent) => {
+                if (e.key === 'Escape') {
+                    resolve(null);
+                    document.body.removeChild(modal);
+                }
+            });
+        });
+    };
+
     const handleAggregate = async () => {
-        const period = prompt("Enter aggregation period (month/quarter/year):", 'month') || 'month';
+        const period = await showAggregationModal();
+        if (!period) return;
+
         const result = await callApi('/api/aggregate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ period }) }, 'Aggregation failed');
         if (result && result.success) {
             setAggResult(`Aggregation successful: ${result.total_records} records | Period: ${period}`);
             setStep(2);
             setActiveSection('aggregate');
         }
+    };
+
+    const showAggregationModal = () => {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+
+            const content = document.createElement('div');
+            content.className = 'bg-white p-6 rounded-lg max-w-md w-full mx-4';
+
+            content.innerHTML = `
+                <h3 class="text-lg font-bold mb-4 text-gray-800">Configurar Agregación de Datos</h3>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Período de Agregación:
+                        </label>
+                        <select 
+                            id="periodSelect" 
+                            class="w-full text-black p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                            <option value="month">Mensual</option>
+                            <option value="quarter">Trimestral</option>
+                            <option value="year">Anual</option>
+                        </select>
+                    </div>
+                    
+                    <div class="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <p class="text-xs text-blue-800">
+                            <strong>Nota:</strong> Este período determinará cómo se agruparán los datos de ventas.
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="flex space-x-3 mt-6">
+                    <button 
+                        id="confirmBtn" 
+                        class="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                    >
+                        Agregar
+                    </button>
+                    <button 
+                        id="cancelBtn" 
+                        class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+                    >
+                        Cancelar
+                    </button>
+                </div>
+            `;
+
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+
+            const periodSelect = content.querySelector('#periodSelect') as HTMLSelectElement;
+            const confirmBtn = content.querySelector('#confirmBtn') as HTMLButtonElement;
+            const cancelBtn = content.querySelector('#cancelBtn') as HTMLButtonElement;
+
+            confirmBtn.addEventListener('click', () => {
+                resolve(periodSelect.value);
+                document.body.removeChild(modal);
+            });
+
+            cancelBtn.addEventListener('click', () => {
+                resolve(null);
+                document.body.removeChild(modal);
+            });
+
+            modal.addEventListener('keydown', (e: KeyboardEvent) => {
+                if (e.key === 'Escape') {
+                    resolve(null);
+                    document.body.removeChild(modal);
+                }
+            });
+        });
     };
 
     const handleVisualize = async () => {
@@ -142,21 +316,32 @@ export default function Dashboard() {
         const visualizationParams = await showVisualizationModal();
         if (!visualizationParams) return;
 
-        const result = await callApi('/api/visualize', { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ 
-                chart_type: visualizationParams.chartType,
+        const result = await callApi('/api/visualize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
                 customer_id: visualizationParams.customerId,
                 start_date: visualizationParams.startDate,
                 end_date: visualizationParams.endDate
-            }) 
+            })
         }, 'Visualization failed');
-        
-        if (result && result.success) {
-            setTrendsData({ 
-                data: result.data, 
-                type: visualizationParams.chartType, 
+
+        console.log('Visualization result:', result); // DEBUG
+
+        if (result) {
+            // Handle both response formats
+            const data = result.data || result || [];
+
+            console.log('Trends data points:', data.length); // DEBUG
+
+            if (data.length === 0) {
+                alert(`No se encontraron datos para el cliente: ${visualizationParams.customerId}`);
+                return;
+            }
+
+            setTrendsData({
+                data: data,
+                type: visualizationParams.chartType,
                 customer: visualizationParams.customerId,
                 startDate: visualizationParams.startDate,
                 endDate: visualizationParams.endDate
@@ -165,17 +350,22 @@ export default function Dashboard() {
         }
     };
 
-    const showVisualizationModal = () => {
+    const showVisualizationModal = (): Promise<{
+        customerId: string;
+        chartType: string;
+        startDate: string | null;
+        endDate: string | null;
+    } | null> => {
         return new Promise((resolve) => {
             const modal = document.createElement('div');
             modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
-            
+
             const content = document.createElement('div');
             content.className = 'bg-white p-6 rounded-lg max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto';
-            
+
             // Generar algunos ejemplos de clientes
             const exampleCustomers = availableCustomers.slice(0, 5);
-            
+
             content.innerHTML = `
                 <h3 class="text-lg font-bold mb-4 text-gray-800">Configurar Visualización de Tendencias</h3>
                 
@@ -189,16 +379,16 @@ export default function Dashboard() {
                             type="text" 
                             id="customerInput" 
                             placeholder="Ingrese el ID del cliente (ej: Cliente_001)" 
-                            class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            class="w-full text-black p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         >
                         <div class="mt-2 p-3 bg-gray-50 rounded-lg">
                             <p class="text-sm font-medium text-gray-700 mb-2">Ejemplos de clientes disponibles:</p>
                             <div class="flex flex-wrap gap-2">
-                                ${exampleCustomers.map(customer => 
-                                    `<button class="example-btn px-3 py-1 bg-blue-100 text-blue-800 text-xs rounded-full hover:bg-blue-200 transition-colors" data-customer="${customer}">
+                                ${exampleCustomers.map(customer =>
+                `<button class="example-btn px-3 py-1 bg-blue-100 text-blue-800 text-xs rounded-full hover:bg-blue-200 transition-colors" data-customer="${customer}">
                                         ${customer}
                                     </button>`
-                                ).join('')}
+            ).join('')}
                             </div>
                             <p class="text-xs text-gray-500 mt-2">
                                 Total de ${availableCustomers.length} clientes disponibles
@@ -213,7 +403,7 @@ export default function Dashboard() {
                         </label>
                         <select 
                             id="chartTypeSelect" 
-                            class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            class="w-full text-black p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         >
                             <option value="line">Línea</option>
                             <option value="bar">Barras</option>
@@ -230,7 +420,7 @@ export default function Dashboard() {
                             <input 
                                 type="date" 
                                 id="startDateInput" 
-                                class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                class="w-full text-black p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             >
                         </div>
                         <div>
@@ -241,7 +431,7 @@ export default function Dashboard() {
                             <input 
                                 type="date" 
                                 id="endDateInput" 
-                                class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                class="w-full text-black p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                             >
                         </div>
                     </div>
@@ -268,63 +458,66 @@ export default function Dashboard() {
                     </button>
                 </div>
             `;
-            
+
             modal.appendChild(content);
             document.body.appendChild(modal);
-            
-            const customerInput = content.querySelector('#customerInput');
-            const chartTypeSelect = content.querySelector('#chartTypeSelect');
-            const startDateInput = content.querySelector('#startDateInput');
-            const endDateInput = content.querySelector('#endDateInput');
-            const confirmBtn = content.querySelector('#confirmBtn');
-            const cancelBtn = content.querySelector('#cancelBtn');
-            
+
+            const customerInput = content.querySelector('#customerInput') as HTMLInputElement;
+            const chartTypeSelect = content.querySelector('#chartTypeSelect') as HTMLSelectElement;
+            const startDateInput = content.querySelector('#startDateInput') as HTMLInputElement;
+            const endDateInput = content.querySelector('#endDateInput') as HTMLInputElement;
+            const confirmBtn = content.querySelector('#confirmBtn') as HTMLButtonElement;
+            const cancelBtn = content.querySelector('#cancelBtn') as HTMLButtonElement;
+
             // Auto-focus en el input
-            customerInput.focus();
-            
+            customerInput?.focus();
+
             // Event listeners para los botones de ejemplo
             content.querySelectorAll('.example-btn').forEach(btn => {
                 btn.addEventListener('click', () => {
-                    customerInput.value = btn.dataset.customer;
-                    customerInput.focus();
+                    const customerValue = (btn as HTMLButtonElement).dataset.customer;
+                    if (customerInput && customerValue) {
+                        customerInput.value = customerValue;
+                        customerInput.focus();
+                    }
                 });
             });
-            
+
             // Función para confirmar
             const confirmVisualization = () => {
-                const customerValue = customerInput.value.trim();
+                const customerValue = customerInput?.value.trim();
                 if (!customerValue) {
                     alert('Por favor ingrese un ID de cliente');
-                    customerInput.focus();
+                    customerInput?.focus();
                     return;
                 }
-                
+
                 resolve({
                     customerId: customerValue,
-                    chartType: chartTypeSelect.value,
-                    startDate: startDateInput.value || null,
-                    endDate: endDateInput.value || null
+                    chartType: chartTypeSelect?.value || 'line',
+                    startDate: startDateInput?.value || null,
+                    endDate: endDateInput?.value || null
                 });
                 document.body.removeChild(modal);
             };
-            
+
             // Event listeners
             confirmBtn.addEventListener('click', confirmVisualization);
-            
+
             cancelBtn.addEventListener('click', () => {
                 resolve(null);
                 document.body.removeChild(modal);
             });
-            
+
             // Permitir Enter para confirmar
             customerInput.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') {
                     confirmVisualization();
                 }
             });
-            
+
             // Permitir Escape para cancelar
-            modal.addEventListener('keydown', (e) => {
+            modal.addEventListener('keydown', (e: KeyboardEvent) => {
                 if (e.key === 'Escape') {
                     resolve(null);
                     document.body.removeChild(modal);
@@ -334,22 +527,162 @@ export default function Dashboard() {
     };
 
     const handleIdentifyRisk = async () => {
-        const thresholdType = prompt("Choose threshold type ('percentage' or 'value'):", 'percentage') || 'percentage';
-        let payload = {};
-        if (thresholdType === 'value') {
-            const val = parseFloat(prompt("Enter the purchase drop threshold in Tons (e.g., 50):"));
-            if (!isNaN(val)) payload.thresholdValue = val;
-        } else {
-            const pct = parseFloat(prompt("Enter the purchase drop threshold % (e.g., 30.0):", '30.0'));
-            if (!isNaN(pct)) payload.thresholdPct = pct;
-        }
-        
-        const response = await callApi('/api/identify-risk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Risk Identification Failed');
-        
+        const params = await showRiskThresholdModal();
+        if (!params) return;
+
+        const response = await callApi('/api/identify-risk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) }, 'Risk Identification Failed');
+
         if (response && response.success) {
             setRiskData(response.data || []);
             setActiveSection('risk');
         }
+    };
+
+    const showRiskThresholdModal = () => {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+
+            const content = document.createElement('div');
+            content.className = 'bg-white p-6 rounded-lg max-w-md w-full mx-4';
+
+            content.innerHTML = `
+                <h3 class="text-lg font-bold mb-4 text-gray-800">Configurar Identificación de Riesgo</h3>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Tipo de Umbral:
+                        </label>
+                        <select 
+                            id="thresholdType" 
+                            class="w-full text-black p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                            <option value="percentage">Porcentaje (%)</option>
+                            <option value="value">Valor Absoluto (Toneladas)</option>
+                        </select>
+                    </div>
+                    
+                    <div id="percentageInput" class="space-y-2">
+                        <label class="block text-sm font-medium text-gray-700">
+                            Umbral de Caída en Porcentaje:
+                        </label>
+                        <input 
+                            type="number" 
+                            id="thresholdPct" 
+                            value="30.0"
+                            step="0.1"
+                            min="0"
+                            max="100"
+                            class="w-full text-black p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                        <p class="text-xs text-gray-500">Ejemplo: 30.0 significa una caída del 30%</p>
+                    </div>
+                    
+                    <div id="valueInput" class="space-y-2 hidden">
+                        <label class="block text-sm font-medium text-gray-700">
+                            Umbral de Caída en Toneladas:
+                        </label>
+                        <input 
+                            type="number" 
+                            id="thresholdValue" 
+                            value="50"
+                            step="1"
+                            min="0"
+                            class="w-full text-black p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                        <p class="text-xs text-gray-500">Ejemplo: 50 toneladas de caída</p>
+                    </div>
+                    
+                    <div class="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <p class="text-xs text-blue-800">
+                            <strong>Nota:</strong> Los clientes con caídas mayores al umbral especificado serán identificados como en riesgo.
+                        </p>
+                    </div>
+                </div>
+                
+                <div class="flex space-x-3 mt-6">
+                    <button 
+                        id="confirmBtn" 
+                        class="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                    >
+                        Identificar
+                    </button>
+                    <button 
+                        id="cancelBtn" 
+                        class="px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+                    >
+                        Cancelar
+                    </button>
+                </div>
+            `;
+
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+
+            const thresholdType = content.querySelector('#thresholdType') as HTMLSelectElement;
+            const percentageInput = content.querySelector('#percentageInput') as HTMLDivElement;
+            const valueInput = content.querySelector('#valueInput') as HTMLDivElement;
+            const thresholdPct = content.querySelector('#thresholdPct') as HTMLInputElement;
+            const thresholdValue = content.querySelector('#thresholdValue') as HTMLInputElement;
+            const confirmBtn = content.querySelector('#confirmBtn') as HTMLButtonElement;
+            const cancelBtn = content.querySelector('#cancelBtn') as HTMLButtonElement;
+
+            thresholdType.addEventListener('change', (e: Event) => {
+                const target = e.target as HTMLSelectElement;
+                if (target.value === 'percentage') {
+                    percentageInput.classList.remove('hidden');
+                    valueInput.classList.add('hidden');
+                } else {
+                    percentageInput.classList.add('hidden');
+                    valueInput.classList.remove('hidden');
+                }
+            });
+
+            const handleConfirm = () => {
+                const type = thresholdType.value;
+                const payload: { thresholdPct?: number; thresholdValue?: number } = {};
+
+                if (type === 'percentage') {
+                    const pct = parseFloat(thresholdPct.value);
+                    if (isNaN(pct) || pct < 0) {
+                        alert('Por favor ingrese un valor de porcentaje válido');
+                        return;
+                    }
+                    payload.thresholdPct = pct;
+                } else {
+                    const val = parseFloat(thresholdValue.value);
+                    if (isNaN(val) || val < 0) {
+                        alert('Por favor ingrese un valor válido en toneladas');
+                        return;
+                    }
+                    payload.thresholdValue = val;
+                }
+
+                resolve(payload);
+                document.body.removeChild(modal);
+            };
+
+            confirmBtn.addEventListener('click', handleConfirm);
+
+            cancelBtn.addEventListener('click', () => {
+                resolve(null);
+                document.body.removeChild(modal);
+            });
+
+            [thresholdPct, thresholdValue].forEach(input => {
+                input.addEventListener('keypress', (e: KeyboardEvent) => {
+                    if (e.key === 'Enter') handleConfirm();
+                });
+            });
+
+            modal.addEventListener('keydown', (e: KeyboardEvent) => {
+                if (e.key === 'Escape') {
+                    resolve(null);
+                    document.body.removeChild(modal);
+                }
+            });
+        });
     };
 
     const handlePredictRisk = async () => {
@@ -361,18 +694,11 @@ export default function Dashboard() {
     };
 
     const handleFlagDrops = async () => {
-        const thresholdType = prompt("Choose threshold type ('percentage' or 'value'):", 'percentage') || 'percentage';
-        let payload = {};
-        if (thresholdType === 'value') {
-            const val = parseFloat(prompt("Enter the purchase drop threshold in Tons (e.g., 50):"));
-            if (!isNaN(val)) payload.thresholdValue = val;
-        } else {
-            const pct = parseFloat(prompt("Enter the purchase drop threshold % (e.g., 30.0):", '30.0'));
-            if (!isNaN(pct)) payload.thresholdPct = pct;
-        }
-        
-        const response = await callApi('/api/flag-drops', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Flag Drops Failed');
-        
+        const params = await showRiskThresholdModal();
+        if (!params) return;
+
+        const response = await callApi('/api/flag-drops', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) }, 'Flag Drops Failed');
+
         if (response && response.success) {
             const top10Flagged = response.data.slice(0, 10);
             setFlaggedData(top10Flagged);
@@ -385,7 +711,7 @@ export default function Dashboard() {
             setLoading(true);
             const response = await fetch('http://localhost:5000/api/download-flags');
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-            
+
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -395,11 +721,12 @@ export default function Dashboard() {
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
-            
+
             alert('Archivo descargado exitosamente: flagged_customers.csv');
         } catch (error) {
             console.error('Download failed:', error);
-            alert(`Error al descargar: ${error.message}`);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            alert(`Error al descargar: ${errorMessage}`);
         } finally {
             setLoading(false);
         }
@@ -409,13 +736,13 @@ export default function Dashboard() {
         if (!data || !Array.isArray(data) || data.length === 0) {
             return <p className="text-sm text-gray-600">No hay datos para mostrar.</p>;
         }
-        
+
         if (typeof data[0] !== 'object' || data[0] === null) {
             return <p className="text-sm text-red-600">Error: Los datos no tienen el formato esperado.</p>;
         }
-        
+
         const headers = Object.keys(data[0]);
-        
+
         return (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
@@ -461,9 +788,9 @@ export default function Dashboard() {
                 <div className="flex-1 flex items-center justify-center">
                     <div className="text-center">
                         <div className="mb-8 flex justify-center">
-                            <img 
-                                src="/grupo_bios.png" 
-                                alt="Grupo Bios" 
+                            <img
+                                src="/grupo_bios.png"
+                                alt="Grupo Bios"
                                 className="opacity-30 transition-opacity duration-300"
                                 style={{ maxWidth: '300px', height: 'auto' }}
                             />
@@ -571,20 +898,90 @@ export default function Dashboard() {
                         </div>
                     )}
 
-                    {activeSection === 'risk' && riskData && riskData.length > 0 && (
-                        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-                            <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
-                                <AlertTriangle className="mr-3 text-[#00657F]" size={24} />
-                                Top 10 Clientes en Mayor Riesgo
-                            </h3>
-                            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-                                <p className="text-sm text-red-800">
-                                    <strong>Alerta:</strong> Se muestran los 10 clientes con mayor riesgo de abandono
-                                </p>
+                    {activeSection === 'risk' && riskData && riskData.length > 0 && (() => {
+                        // Ordenar automáticamente por drop_pct y luego por drop_value
+                        const sortedData = [...riskData].sort((a, b) => {
+                            const pctDiff = (b["% Caída"] ?? 0) - (a["% Caída"] ?? 0);
+                            if (pctDiff !== 0) return pctDiff;
+                            return (b["Caída (Tons)"] ?? 0) - (a["Caída (Tons)"] ?? 0);
+                        });
+
+                        // Extraer centros operativos únicos
+                        const uniqueCenters = Array.from(
+                            new Set(sortedData.map(d => d['Centro Operativo'] || d.centro_operativo).filter(Boolean))
+                        );
+                        uniqueCenters.sort();
+
+                        // Aplicar filtros dinámicamente
+                        const filteredData = sortedData.filter((row) => {
+                            const centerValue = row['Centro Operativo'] || row.centro_operativo;
+                            const matchesCenter = selectedCenter === 'TODOS' || centerValue === selectedCenter;
+
+                            const clientValue = row['Cliente'] || row.cliente || '';
+                            const matchesSearch = !searchTerm ||
+                                clientValue.toString().toLowerCase().includes(searchTerm.toLowerCase());
+
+                            return matchesCenter && matchesSearch;
+                        });
+
+                        return (
+                            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                                <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
+                                    <AlertTriangle className="mr-3 text-[#00657F]" size={24} />
+                                    Clientes en Riesgo de Abandono
+                                </h3>
+
+                                {/* Filtros */}
+                                <div className="flex flex-col md:flex-row md:items-center md:space-x-4 mb-6 space-y-3 md:space-y-0">
+                                    <div className="flex-1">
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Filtrar por Centro Operativo:
+                                        </label>
+                                        <select
+                                            value={selectedCenter}
+                                            onChange={(e) => setSelectedCenter(e.target.value)}
+                                            className="w-full md:w-auto p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                                        >
+                                            <option value="TODOS">Todos</option>
+                                            {uniqueCenters.map((c) => (
+                                                <option key={c} value={c}>
+                                                    {c}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="flex-1">
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Buscar Cliente:
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                            placeholder="Ingrese ID o nombre de cliente"
+                                            className="w-full md:w-auto p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Info Box */}
+                                <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                                    <p className="text-sm text-red-800">
+                                        <strong>Alerta:</strong> Mostrando {filteredData.length} de {sortedData.length} clientes en riesgo.
+                                        Los resultados están ordenados por porcentaje de caída.
+                                    </p>
+                                </div>
+
+                                {/* Tabla */}
+                                {filteredData.length > 0 ? (
+                                    renderTable(filteredData.slice(0, 50))
+                                ) : (
+                                    <p className="text-sm text-gray-600">No se encontraron clientes con esos filtros.</p>
+                                )}
                             </div>
-                            {renderTable(riskData)}
-                        </div>
-                    )}
+                        );
+                    })()}
 
                     {activeSection === 'predict' && predictionData && (
                         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -664,9 +1061,9 @@ export default function Dashboard() {
                 {/* Header con Logo */}
                 <div className="p-6 border-b border-[#00657F]/20">
                     <div className="flex items-center space-x-3 mb-2">
-                        <img 
-                            src="/grupo_bios.png" 
-                            alt="Grupo Bios" 
+                        <img
+                            src="/grupo_bios.png"
+                            alt="Grupo Bios"
                             className="w-10 h-10 object-contain bg-white rounded-lg p-1"
                         />
                         <div>
@@ -681,19 +1078,18 @@ export default function Dashboard() {
                     {menuItems.map((item) => {
                         const Icon = item.icon;
                         const isActive = activeSection === item.id;
-                        
+
                         return (
                             <button
                                 key={item.id}
                                 onClick={item.action}
                                 disabled={item.disabled}
-                                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-all duration-200 ${
-                                    isActive 
-                                        ? 'bg-[#AACF00] text-[#00657F] shadow-lg' 
-                                        : item.disabled
+                                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-left transition-all duration-200 ${isActive
+                                    ? 'bg-[#AACF00] text-[#00657F] shadow-lg'
+                                    : item.disabled
                                         ? 'text-blue-300 cursor-not-allowed opacity-50'
                                         : 'text-white hover:bg-[#00657F]/80 hover:bg-white/10'
-                                }`}
+                                    }`}
                             >
                                 <Icon size={20} />
                                 <span className="font-medium">{item.label}</span>

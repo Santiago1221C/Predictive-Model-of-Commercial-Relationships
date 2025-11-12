@@ -1,292 +1,233 @@
 # processing/analyzer.py
 
 import pandas as pd
-import numpy as np
-from datetime import datetime
-import warnings
-import sys
-import os
+from typing import Dict, Optional
 
-# Agregar el directorio backend al path para importaciones
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Importaciones CORREGIDAS usando rutas relativas
+try:
+    # Intentar imports relativos primero
+    from ..data.data_loader import DataLoader
+    from ..data.data_aggregator import DataAggregator
+    from .analysis_reporter import AnalysisReporter
+    from ..models.ml_model import ChurnPredictor
+    from .flag_reporter import FlagReporter
 
-from data.data_loader import DataLoader
-from data.data_aggregator import DataAggregator
-from models.ml_model import MLModel
-from processing.flag_reporter import FlagReporter
-from processing.analysis_reporter import AnalysisReporter
+except ImportError:
+    # Si fallan, intentar imports absolutos con sys.path
+    import sys
+    import os
 
-warnings.filterwarnings('ignore')
+    sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+
+    from data.data_loader import DataLoader
+    from data.data_aggregator import DataAggregator
+    from processing.analysis_reporter import AnalysisReporter
+    from models.ml_model import ChurnPredictor
+    from processing.flag_reporter import FlagReporter
+
 
 class FunctionalRequirementsAnalyzer:
     """
-    Clase principal que orquesta todos los requerimientos funcionales del sistema.
+    Clase principal orquestadora (Façade/SRP). Gestiona el flujo de datos
+    y delega tareas específicas a módulos especializados:
+    - data.DataLoader: Carga de datos
+    - data.DataAggregator: Agregación por período
+    - processing.AnalysisReporter: Análisis de tendencias y reglas de riesgo
+    - models.ml_model: Modelo de Machine Learning (predicción de abandono)
     """
-    
-    def __init__(self):
-        """Inicializa el analizador con componentes necesarios."""
-        self.df = None
-        self.aggregated_df = None
-        self.customer_col = None
-        self.date_col = None
-        self.quantity_col = None
-        self.flagged_customers = None
-        
-        # Componentes del sistema
-        self.data_loader = DataLoader()
-        self.data_aggregator = DataAggregator()
-        self.ml_model = MLModel()
-        self.flag_reporter = FlagReporter()
-        self.analysis_reporter = AnalysisReporter()
-        
-        print("✅ FunctionalRequirementsAnalyzer initialized successfully")
 
-    def upload_historical_data(self, file_path):
-        """FR1: Carga datos históricos desde un archivo CSV."""
-        try:
-            print(f"\n{'='*80}")
-            print("FUNCTIONAL REQUIREMENT 1: UPLOAD HISTORICAL DATA")
-            print(f"{'='*80}")
-            
-            result = self.data_loader.load_csv(file_path)
-            
-            if result['success']:
-                self.df = result['dataframe']
-                self.customer_col = result['customer_col']
-                self.date_col = result['date_col']
-                self.quantity_col = result['quantity_col']
-                
-                print(f"File loaded successfully. Columns detected: Customer='{self.customer_col}', Date='{self.date_col}', Quantity='{self.quantity_col}'")
-                print("🎉 UPLOAD COMPLETED SUCCESSFULLY")
-                print(f"{'='*80}")
-                
-                return {
-                    'success': True,
-                    'message': 'Data uploaded successfully',
-                    'total_rows': len(self.df),
-                    'total_columns': len(self.df.columns),
-                    'customer_col': self.customer_col,
-                    'date_col': self.date_col,
-                    'quantity_col': self.quantity_col
-                }
-            else:
-                return result
-                
-        except Exception as e:
-            error_msg = f"Error uploading data: {str(e)}"
-            print(f"❌ {error_msg}")
-            return {'success': False, 'message': error_msg}
+    def __init__(self, csv_file: Optional[str] = None):
+        # Estado principal de los datos
+        self.df: Optional[pd.DataFrame] = None
+        self.aggregated_df: Optional[pd.DataFrame] = None
 
-    def aggregate_customer_data(self, period='month'):
-        """FR2: Agrega datos por cliente y período."""
-        try:
-            if self.df is None:
-                return {'success': False, 'message': 'No data loaded. Please upload data first.'}
-            
-            print(f"\n{'='*80}")
-            print("FUNCTIONAL REQUIREMENT 2: AGGREGATE DATA")
-            print(f"{'='*80}")
-            print(f"Aggregating data by customer and period: {period}")
-            
-            result = self.data_aggregator.aggregate_by_period(
-                self.df, 
-                self.customer_col, 
-                self.date_col, 
-                self.quantity_col, 
-                period
-            )
-            
-            if result['success']:
-                self.aggregated_df = result['aggregated_data']
-                print("🎉 AGGREGATION COMPLETED SUCCESSFULLY")
-                print(f"{'='*80}")
-                
-                return {
-                    'success': True,
-                    'message': f'Data aggregated successfully by {period}',
-                    'total_records': len(self.aggregated_df),
-                    'period': period
-                }
-            else:
-                return result
-                
-        except Exception as e:
-            error_msg = f"Error aggregating data: {str(e)}"
-            print(f"❌ {error_msg}")
-            return {'success': False, 'message': error_msg}
+        # Información de las columnas (mantenida por el loader)
+        self.customer_col: Optional[str] = None
 
-    def visualize_trends(self, chart_type='line', customer_id=None):
-        """FR3: Genera datos para visualización de tendencias por cliente específico."""
-        try:
-            if self.aggregated_df is None:
-                return {'success': False, 'message': 'No aggregated data available. Please aggregate data first.'}
-            
-            print(f"\n{'='*80}")
-            print("FUNCTIONAL REQUIREMENT 3: VISUALIZE TRENDS")
-            print(f"{'='*80}")
-            print(f"Generating {chart_type} chart data for customer: {customer_id}")
-            
-            if customer_id is None:
-                return {'success': False, 'message': 'Customer ID is required for trend visualization.'}
-            
-            # Filtrar datos por cliente específico
-            customer_data = self.aggregated_df[self.aggregated_df[self.customer_col] == customer_id]
-            
-            if len(customer_data) == 0:
-                available_customers = self.aggregated_df[self.customer_col].unique().tolist()
-                return {
-                    'success': False, 
-                    'message': f'Customer "{customer_id}" not found. Available customers: {available_customers[:10]}...'
-                }
-            
-            # Ordenar por período
-            customer_data = customer_data.sort_values('period_dt')
-            
-            # Convertir a formato para charts
-            chart_data = []
-            for _, row in customer_data.iterrows():
-                chart_data.append({
-                    'period_dt': str(row['period_dt']),
-                    'total_tons': round(row['total_quantity'] / 1000, 2),  # Convertir a toneladas
-                    'transaction_count': int(row['transaction_count'])
-                })
-            
-            print(f"Generated chart data with {len(chart_data)} data points for customer {customer_id}")
-            print("🎉 VISUALIZATION DATA GENERATED SUCCESSFULLY")
-            print(f"{'='*80}")
-            
+        # Composición de módulos especializados (Inyección de dependencias)
+        self.loader = DataLoader()
+        self.aggregator = DataAggregator()
+        self.reporter = AnalysisReporter()
+        self.predictor = ChurnPredictor()
+        self.flagger = FlagReporter()
+
+        if csv_file:
+            self.upload_historical_data(csv_file)
+
+    # ======================================================================
+    # FR1: Carga de Datos Históricos
+    # ======================================================================
+    def upload_historical_data(self, file_path: str) -> Dict[str, any]:
+        result = self.loader.upload_historical_data(file_path)
+        if result["success"]:
+            # Sincroniza el estado del Analyzer con el estado del Loader
+            self.df = self.loader.df
+            self.customer_col = self.loader.customer_col
+        return result
+
+    # ======================================================================
+    # FR2: Agregación de Compras por Cliente y Período
+    # ======================================================================
+    def aggregate_purchases_by_customer_and_period(
+        self, period: str = "month", custom_period: Optional[str] = None
+    ) -> Dict[str, any]:
+        if self.df is None or not self.customer_col:
             return {
-                'success': True,
-                'data': chart_data,
-                'chart_type': chart_type,
-                'customer_id': customer_id,
-                'message': f'{chart_type.title()} chart data generated successfully for customer {customer_id}'
+                "success": False,
+                "message": "Error: Data not loaded or columns not detected.",
             }
-            
-        except Exception as e:
-            error_msg = f"Error generating visualization: {str(e)}"
-            print(f"❌ {error_msg}")
-            return {'success': False, 'message': error_msg}
 
-    def identify_at_risk_customers(self, threshold_pct=None, threshold_value=None):
-        """FR4: Identifica los 10 clientes con mayor riesgo."""
-        try:
-            if self.aggregated_df is None:
-                return {'success': False, 'message': 'No aggregated data available. Please aggregate data first.'}
-            
-            print(f"[DEBUG] Risk analysis parameters - Percentage: {threshold_pct}, Value: {threshold_value}")
-            print(f"[DEBUG] Aggregated data shape: {self.aggregated_df.shape}")
-            
-            result = self.analysis_reporter.identify_at_risk_customers(
-                self.aggregated_df, 
-                self.customer_col, 
-                threshold_pct, 
-                threshold_value
-            )
-            
-            if result['success']:
-                # Tomar solo los 10 clientes con mayor riesgo
-                top_10_risk = result['data'][:10] if len(result['data']) > 10 else result['data']
-                
-                print(f"[DEBUG] Returning top 10 risk customers: {len(top_10_risk)} customers")
-                
-                return {
-                    'success': True,
-                    'data': top_10_risk,
-                    'total_at_risk': len(result['data']),
-                    'showing_count': len(top_10_risk),
-                    'message': f"Showing top {len(top_10_risk)} customers at risk (of {len(result['data'])} total)"
-                }
-            else:
-                return result
-                
-        except Exception as e:
-            error_msg = f"Error identifying at-risk customers: {str(e)}"
-            print(f"❌ {error_msg}")
-            return {'success': False, 'message': error_msg}
+        result = self.aggregator.aggregate_purchases_by_customer_and_period(
+            df=self.df,
+            customer_col=self.loader.customer_col,
+            quantity_col=self.loader.quantity_col,
+            date_col=self.loader.date_col,
+            year_col=self.loader.year_col,
+            month_col=self.loader.month_col,
+            period=period,
+            custom_period=custom_period,
+            operational_center_col=self.loader.operational_center_col
+        )
+        print(self.loader.operational_center_col)
+        print(result["aggregated_data"]["operational_center"].head(5))
+        
+        if result["success"]:
+            # Almacena el resultado agregado para las siguientes etapas
+            self.aggregated_df = result["aggregated_data"]
+            self.total_records = len(self.aggregated_df)
+        return result
 
-    def predict_churn_risk(self):
-        """FR5: Predice los 10 clientes con mayor riesgo usando ML."""
-        try:
-            if self.aggregated_df is None:
-                return {'success': False, 'message': 'No aggregated data available. Please aggregate data first.'}
-            
-            print(f"\n{'='*80}")
-            print("FUNCTIONAL REQUIREMENT 5: PREDICT CHURN RISK (ML)")
-            print(f"{'='*80}")
-            
-            result = self.ml_model.train_and_predict(self.aggregated_df, self.customer_col)
-            
-            if result['success']:
-                # Tomar solo los 10 clientes con mayor probabilidad de churn
-                top_10_predictions = result['predictions'][:10] if len(result['predictions']) > 10 else result['predictions']
-                
-                # Actualizar el resultado
-                result['predictions'] = top_10_predictions
-                result['showing_count'] = len(top_10_predictions)
-                result['evaluation']['total_high_risk_shown'] = len(top_10_predictions)
-                
-                print("🎉 ML PREDICTION COMPLETED SUCCESSFULLY")
-                print(f"Showing top {len(top_10_predictions)} customers with highest churn risk")
-                print(f"{'='*80}")
-                
-                return result
-            else:
-                return result
-                
-        except Exception as e:
-            error_msg = f"Error predicting churn risk: {str(e)}"
-            print(f"❌ {error_msg}")
-            return {'success': False, 'message': error_msg}
+    # ======================================================================
+    # FR3: Visualización de Tendencias
+    # ======================================================================
+    def visualize_customer_trends(
+        self,
+        customer_id: str,
+        start_date_str: Optional[str] = None,
+        end_date_str: Optional[str] = None,
+    ) -> pd.DataFrame:
+        if self.aggregated_df is None or not self.customer_col:
+            return pd.DataFrame()
+        return self.reporter.visualize_customer_trends(
+            aggregated_df=self.aggregated_df,
+            customer_col=self.customer_col,
+            customer_id=customer_id,
+            start_date_str=start_date_str,
+            end_date_str=end_date_str,
+        )
 
-    def flag_significant_drops(self, threshold_pct=30.0, threshold_value=None):
-        """FR6: Marca clientes con caídas significativas."""
-        try:
-            if self.aggregated_df is None:
-                return {'success': False, 'message': 'No aggregated data available. Please aggregate data first.'}
-            
-            print(f"\n{'='*80}")
-            print("FUNCTIONAL REQUIREMENT 6: FLAG SIGNIFICANT DROPS")
-            print(f"{'='*80}")
-            
-            result = self.flag_reporter.flag_customers_with_drops(
-                self.aggregated_df, 
-                self.customer_col, 
-                threshold_pct, 
-                threshold_value
-            )
-            
-            if result['success']:
-                self.flagged_customers = result['flagged_data']
-                print("🎉 FLAGGING COMPLETED SUCCESSFULLY")
-                print(f"{'='*80}")
-                
-                return {
-                    'success': True,
-                    'data': result['data'],
-                    'total_flagged': len(result['data']),
-                    'message': f"Flagged {len(result['data'])} customers with significant drops"
-                }
-            else:
-                return result
-                
-        except Exception as e:
-            error_msg = f"Error flagging customers: {str(e)}"
-            print(f"❌ {error_msg}")
-            return {'success': False, 'message': error_msg}
+    # ======================================================================
+    # FR4: Identificación de Clientes en Riesgo por Regla
+    # ======================================================================
+    def identify_at_risk_customers(
+        self,
+        threshold_pct: Optional[float] = None,
+        threshold_value: Optional[float] = None,
+    ) -> pd.DataFrame:
+        if self.aggregated_df is None or not self.customer_col:
+            return pd.DataFrame()
+        return self.reporter.identify_at_risk_customers(
+            aggregated_df=self.aggregated_df,
+            customer_col=self.customer_col,
+            threshold_pct=threshold_pct,
+            threshold_value=threshold_value,
+        )
 
-    def get_available_customers(self):
-        """Obtiene la lista de clientes disponibles."""
-        try:
-            if self.df is None:
-                return {'success': False, 'message': 'No data loaded.'}
-            
-            customers = sorted(self.df[self.customer_col].unique().tolist())
+    # ======================================================================
+    # FR5: Predicción de Abandono con ML (Random Forest)
+    # ======================================================================
+    def train_and_predict_churn_with_rf(
+        self, test_size: float = 0.2, granularity: str = "M"
+    ) -> Dict:
+        """
+        FR5: Entrena el modelo de Machine Learning (Random Forest)
+        y predice clientes con riesgo de abandono.
+        """
+        print("\n" + "=" * 80)
+        print("FR5: MODELO ROBUSTO Y ADAPTATIVO - Análisis", granularity)
+        print("=" * 80)
+
+        # --- Validaciones previas ---
+        if self.aggregated_df is None:
             return {
-                'success': True,
-                'customers': customers,
-                'total_customers': len(customers)
+                "success": False,
+                "message": "❌ Error: You must aggregate data first.",
             }
-        except Exception as e:
-            return {'success': False, 'message': f'Error getting customers: {str(e)}'}
 
+        if self.customer_col is None:
+            return {
+                "success": False,
+                "message": "❌ Customer column not identified, please check your data.",
+            }
+
+        df = self.aggregated_df.copy()
+        
+        print("#" * 100)
+        print(df[["operational_center"]].head(5))
+
+        # --- Diagnóstico previo al modelo ---
+        print("\n🔍 VALIDACIÓN DE DATOS DE ENTRADA AL MODELO")
+        print(f"   Total de registros: {len(df):,}")
+        print(
+            f"   Clientes únicos: {df[self.customer_col].nunique() if self.customer_col in df.columns else 'N/A'}"
+        )
+        print(f"   Columnas disponibles: {df.columns.tolist()}")
+
+        if "total_tons" in df.columns:
+            print(
+                f"   Suma total de ventas (total_tons): {df['total_tons'].sum():,.2f}"
+            )
+            print(
+                f"   Porcentaje de registros con 0 ventas: {(df['total_tons'] == 0).mean() * 100:.2f}%"
+            )
+        else:
+            posibles = [
+                c
+                for c in df.columns
+                if "ton" in c.lower() or "venta" in c.lower() or "kg" in c.lower()
+            ]
+            return {
+                "success": False,
+                "message": f"❌ La columna 'total_tons' no existe en los datos agregados. Posibles columnas: {posibles}",
+            }
+
+        # --- Validar si los datos tienen información útil ---
+        if df["total_tons"].sum() == 0:
+            return {
+                "success": False,
+                "message": "🚨 ERROR CRÍTICO: El dataset contiene 100% de registros sin ventas. Verifica la preparación de datos.",
+            }
+
+        # --- Entrenamiento del modelo ---
+        print("\n[INFO] Entrenando modelo de predicción de abandono...")
+        result = self.predictor.train_and_predict_churn_with_rf(
+            aggregated_df=df,
+            customer_col=self.customer_col,
+            test_size=test_size,
+            granularity=granularity,
+        )
+
+        # --- Resultados ---
+        if result.get("success"):
+            print(
+                f"[SUCCESS] Modelo entrenado correctamente con granularidad {granularity}"
+            )
+        else:
+            print(f"[ERROR] Falló el entrenamiento: {result.get('message')}")
+
+        return result
+
+    # ======================================================================
+    # FR6: Señalamiento de Caídas Significativas
+    # ======================================================================
+    def flag_significant_drops(
+        self, drop_pct_threshold: float = 30.0, drop_value_threshold: float = 5.0
+    ) -> pd.DataFrame:
+        if self.aggregated_df is None or not self.customer_col:
+            return pd.DataFrame()
+        return self.flagger.flag_significant_drops(
+            aggregated_df=self.aggregated_df,
+            customer_col=self.customer_col,
+            drop_pct_threshold=drop_pct_threshold,
+            drop_value_threshold=drop_value_threshold,
+        )

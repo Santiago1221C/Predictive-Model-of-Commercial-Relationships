@@ -1,132 +1,183 @@
-# data/data_aggregator.py
-
 import pandas as pd
-import numpy as np
-from datetime import datetime
-import warnings
+from typing import Dict, Optional
 
-warnings.filterwarnings('ignore')
 
 class DataAggregator:
-    """Clase para agregar datos por diferentes períodos."""
-    
-    def __init__(self):
-        self.supported_periods = ['month', 'quarter', 'year']
-    
-    def aggregate_by_period(self, df, customer_col, date_col, quantity_col, period='month'):
+    """Maneja la agregación de datos de compra por cliente, centro operativo y período (FR2)."""
+
+    def aggregate_purchases_by_customer_and_period(
+        self,
+        df: pd.DataFrame,
+        customer_col: str,
+        quantity_col: str,
+        operational_center_col: Optional[str] = None,
+        date_col: Optional[str] = None,
+        year_col: Optional[str] = None,
+        month_col: Optional[str] = None,
+        period: str = "month",
+        custom_period: Optional[str] = None,
+    ) -> Dict[str, any]:
         """
-        Agrega datos por cliente y período especificado.
-        
-        Args:
-            df (DataFrame): Datos originales
-            customer_col (str): Nombre de la columna de cliente
-            date_col (str): Nombre de la columna de fecha
-            quantity_col (str): Nombre de la columna de cantidad
-            period (str): Período de agregación
-            
-        Returns:
-            dict: Resultado con datos agregados
+        Agrega datos por cliente, centro operativo y período de tiempo especificado,
+        con validaciones y depuración.
         """
+        print("=" * 100)
+        print("FUNCTIONAL REQUIREMENT 2: AGGREGATE DATA (Debug Mode)")
+        print("=" * 100)
+
+        result = {"success": False, "message": "", "aggregated_data": None}
+
         try:
-            print(f"Aggregating data by {period}")
-            print(f"Input data shape: {df.shape}")
-            print(f"Columns: Customer={customer_col}, Date={date_col}, Quantity={quantity_col}")
-            
-            if period not in self.supported_periods:
-                return {
-                    'success': False, 
-                    'message': f'Período no soportado: {period}. Use: {self.supported_periods}'
-                }
-            
-            # Crear copia del dataframe
-            agg_df = df.copy()
-            
-            # Asegurar que la fecha sea datetime
-            agg_df[date_col] = pd.to_datetime(agg_df[date_col])
-            
-            # Crear columna de período
-            if period == 'month':
-                agg_df['period_dt'] = agg_df[date_col].dt.to_period('M')
-            elif period == 'quarter':
-                agg_df['period_dt'] = agg_df[date_col].dt.to_period('Q')
-            elif period == 'year':
-                agg_df['period_dt'] = agg_df[date_col].dt.to_period('Y')
-            
-            print(f"Period column created successfully")
-            
-            # Agregar por cliente y período
-            aggregated = agg_df.groupby([customer_col, 'period_dt']).agg({
-                quantity_col: ['sum', 'count', 'mean']
-            }).reset_index()
-            
-            # Aplanar columnas múltiples
-            aggregated.columns = [
-                customer_col, 
-                'period_dt', 
-                'total_quantity', 
-                'transaction_count', 
-                'avg_quantity'
-            ]
-            
-            print(f"Data aggregated successfully. Shape: {aggregated.shape}")
-            
-            # Convertir period_dt a string para serialización
-            aggregated['period_dt'] = aggregated['period_dt'].astype(str)
-            
-            # Ordenar por cliente y período
-            aggregated = aggregated.sort_values([customer_col, 'period_dt'])
-            
-            print(f"Unique customers: {aggregated[customer_col].nunique()}")
-            print(f"Unique periods: {aggregated['period_dt'].nunique()}")
-            
-            return {
-                'success': True,
-                'aggregated_data': aggregated,
-                'total_records': len(aggregated),
-                'unique_customers': aggregated[customer_col].nunique(),
-                'period': period,
-                'message': f'Datos agregados exitosamente por {period}'
-            }
-            
+            df_work = df.copy()
+            print(f"Total de registros recibidos: {len(df_work):,}")
+            print(f"Columnas originales: {df_work.columns.tolist()}")
+            print(
+                f"Cliente: '{customer_col}' | Cantidad: '{quantity_col}' | Centro operativo: '{operational_center_col}'"
+            )
+            print(f"Fecha: '{date_col}' | Año: '{year_col}' | Mes: '{month_col}'")
+
+            # ------------------------------------------------------------------
+            # Validación columna de cantidad
+            if quantity_col not in df_work.columns:
+                posibles = [
+                    c
+                    for c in df_work.columns
+                    if "venta" in c.lower() or "kg" in c.lower()
+                ]
+                result["message"] = (
+                    f"La columna de cantidad '{quantity_col}' no existe. Posibles columnas: {posibles}"
+                )
+                print(result["message"])
+                return result
+
+            # ------------------------------------------------------------------
+            # Conversión numérica segura
+            df_work[quantity_col] = (
+                df_work[quantity_col]
+                .astype(str)
+                .str.replace(",", ".", regex=False)
+                .str.replace(" ", "", regex=False)
+            )
+            df_work[quantity_col] = pd.to_numeric(
+                df_work[quantity_col], errors="coerce"
+            ).fillna(0)
+
+            print("\nEscala de la columna de cantidad antes de agregar:")
+            print(df_work[quantity_col].describe())
+
+            # ------------------------------------------------------------------
+            # Creación de columna de fecha
+            try:
+                if (
+                    year_col
+                    and month_col
+                    and year_col in df_work.columns
+                    and month_col in df_work.columns
+                ):
+                    df_work["date"] = pd.to_datetime(
+                        df_work[year_col].astype(str)
+                        + "-"
+                        + df_work[month_col].astype(str).str.zfill(2)
+                        + "-01",
+                        errors="coerce",
+                    )
+                elif date_col and date_col in df_work.columns:
+                    df_work["date"] = pd.to_datetime(df_work[date_col], errors="coerce")
+                else:
+                    raise ValueError("No se pudo determinar columna de fecha válida.")
+
+                print("\nVista previa de fechas creadas:")
+                print(df_work[["date", customer_col, quantity_col]].head(10))
+                print(f"Fechas nulas: {df_work['date'].isna().sum():,}")
+
+            except Exception as e:
+                result["message"] = f"Error al crear la columna de fecha: {str(e)}"
+                print(result["message"])
+                return result
+
+            # ------------------------------------------------------------------
+            # Cálculo del período (mes, trimestre, año)
+            period_map = {"month": "M", "quarter": "Q", "year": "Y"}
+            if period in period_map:
+                df_work["period"] = df_work["date"].dt.to_period(period_map[period])
+            elif period == "custom" and custom_period:
+                df_work["period"] = df_work["date"].dt.to_period(custom_period)
+            else:
+                result["message"] = "Período inválido especificado."
+                print(result["message"])
+                return result
+
+            # ------------------------------------------------------------------
+            # Renombrar columna de centro operativo si aplica
+            if operational_center_col and operational_center_col in df_work.columns:
+                df_work.rename(
+                    columns={operational_center_col: "operational_center"}, inplace=True
+                )
+            else:
+                df_work["operational_center"] = "Unknown"
+
+            # ------------------------------------------------------------------
+            # Agregación
+            print("\nIniciando agregación por cliente, centro operativo y período...")
+
+            aggregated = (
+                df_work.groupby([customer_col, "operational_center", "period"])
+                .agg({quantity_col: "sum"})
+                .round(4)
+                .reset_index()
+            )
+            aggregated.rename(columns={quantity_col: "total_kg"}, inplace=True)
+
+            # ------------------------------------------------------------------
+            # Cálculo de toneladas
+            max_val = aggregated["total_kg"].max()
+            if max_val <= 50:
+                print(
+                    "Los valores parecen estar en TONELADAS — se omite la división entre 1000."
+                )
+                aggregated["total_tons"] = aggregated["total_kg"]
+            else:
+                aggregated["total_tons"] = aggregated["total_kg"] / 1000
+
+            aggregated["period"] = aggregated["period"].astype(str)
+
+            # ------------------------------------------------------------------
+            # Diagnóstico final
+            total_sum = aggregated["total_tons"].sum()
+            zero_percent = (aggregated["total_tons"] == 0).mean() * 100
+
+            print("\nRESUMEN DE AGREGACIÓN")
+            print(f"   Total de registros agregados: {len(aggregated):,}")
+            print(
+                f"   Total de clientes únicos: {aggregated[customer_col].nunique():,}"
+            )
+            print(
+                f"   Total de centros operativos únicos: {aggregated['operational_center'].nunique():,}"
+            )
+            print(f"   Suma total de toneladas: {total_sum:,.2f}")
+            print(f"   Porcentaje de registros con 0 ventas: {zero_percent:.2f}%")
+
+            if total_sum == 0:
+                print(
+                    "ALERTA: TODAS LAS VENTAS SON 0 — verifica la columna de cantidad o las fechas."
+                )
+
+            print(
+                "\nColumnas finales que se enviarán al modelo:",
+                aggregated.columns.tolist(),
+            )
+
+            # ------------------------------------------------------------------
+            result["success"] = True
+            result["message"] = f"Aggregation successful: {len(aggregated):,} records"
+            result["aggregated_data"] = aggregated
+
+            print("\nAGGREGATION COMPLETED SUCCESSFULLY")
+            print("=" * 100)
+
         except Exception as e:
-            error_msg = f'Error agregando datos: {str(e)}'
-            print(f"❌ {error_msg}")
-            return {'success': False, 'message': error_msg}
-    
-    def calculate_customer_metrics(self, aggregated_df, customer_col):
-        """
-        Calcula métricas adicionales por cliente.
-        
-        Args:
-            aggregated_df (DataFrame): Datos agregados
-            customer_col (str): Columna de cliente
-            
-        Returns:
-            DataFrame: Datos con métricas adicionales
-        """
-        try:
-            # Calcular métricas por cliente
-            customer_metrics = aggregated_df.groupby(customer_col).agg({
-                'total_quantity': ['sum', 'mean', 'std', 'count'],
-                'transaction_count': 'sum',
-                'period_dt': ['min', 'max']
-            })
-            
-            # Aplanar columnas
-            customer_metrics.columns = [
-                'total_sum', 'total_mean', 'total_std', 'period_count',
-                'total_transactions', 'first_period', 'last_period'
-            ]
-            
-            customer_metrics = customer_metrics.reset_index()
-            
-            # Calcular duración del cliente
-            customer_metrics['customer_lifetime'] = customer_metrics['period_count']
-            
-            # Rellenar valores nulos en std con 0
-            customer_metrics['total_std'] = customer_metrics['total_std'].fillna(0)
-            
-            return customer_metrics
-            
-        except Exception as e:
-            raise Exception(f"Error calculando métricas de cliente: {str(e)}")
+            result["message"] = f"Error in aggregation: {str(e)}"
+            print(f"Error: {result['message']}")
+            print("=" * 100)
+
+        return result
